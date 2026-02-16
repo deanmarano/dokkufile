@@ -1,0 +1,20 @@
+# Go
+dokkufile
+*.exe
+*.test
+*.out
+
+# Node (E2E tests)
+tests/e2e/node_modules/
+tests/e2e/dist/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
