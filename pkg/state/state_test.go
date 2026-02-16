@@ -605,7 +605,7 @@ func TestParseAppJSON(t *testing.T) {
 			{"command": "rake db:backup", "schedule": "@daily"}
 		]
 	}`
-	hc, cron := parseAppJSON(input)
+	hc, cron, scripts := parseAppJSON(input)
 	if len(hc) != 1 {
 		t.Fatalf("expected 1 healthcheck process type, got %d", len(hc))
 	}
@@ -615,10 +615,13 @@ func TestParseAppJSON(t *testing.T) {
 	if len(cron) != 1 || cron[0].Command != "rake db:backup" || cron[0].Schedule != "@daily" {
 		t.Errorf("cron = %+v, unexpected", cron)
 	}
+	if scripts != nil {
+		t.Error("expected nil scripts")
+	}
 }
 
 func TestParseAppJSONEmpty(t *testing.T) {
-	hc, cron := parseAppJSON("{}")
+	hc, cron, _ := parseAppJSON("{}")
 	if len(hc) != 0 {
 		t.Errorf("expected no healthchecks, got %d", len(hc))
 	}
@@ -628,9 +631,30 @@ func TestParseAppJSONEmpty(t *testing.T) {
 }
 
 func TestParseAppJSONInvalid(t *testing.T) {
-	hc, cron := parseAppJSON("not json")
+	hc, cron, _ := parseAppJSON("not json")
 	if hc != nil || cron != nil {
 		t.Error("expected nil for invalid JSON")
+	}
+}
+
+func TestParseAppJSONWithScripts(t *testing.T) {
+	input := `{
+		"scripts": {
+			"dokku": {
+				"predeploy": "rake db:migrate",
+				"postdeploy": "rake cache:clear"
+			}
+		}
+	}`
+	_, _, scripts := parseAppJSON(input)
+	if scripts == nil {
+		t.Fatal("expected scripts to be set")
+	}
+	if scripts.Predeploy != "rake db:migrate" {
+		t.Errorf("Predeploy = %q, want %q", scripts.Predeploy, "rake db:migrate")
+	}
+	if scripts.Postdeploy != "rake cache:clear" {
+		t.Errorf("Postdeploy = %q, want %q", scripts.Postdeploy, "rake cache:clear")
 	}
 }
 
@@ -1024,6 +1048,76 @@ func TestDokkuReaderResourcesAndChecks(t *testing.T) {
 	// Maintenance
 	if !app.Maintenance {
 		t.Error("Maintenance should be true")
+	}
+}
+
+func TestParseNginxProperties(t *testing.T) {
+	input := `=====> web
+       Nginx hsts:                    true
+       Nginx client max body size:    50m
+       Nginx proxy read timeout:      120s
+       Nginx proxy buffer size:       16k
+       Nginx underscore in headers:   on
+`
+	got := parseNginxProperties(input)
+	if got["client-max-body-size"] != "50m" {
+		t.Errorf("client-max-body-size = %q, want 50m", got["client-max-body-size"])
+	}
+	if got["proxy-read-timeout"] != "120s" {
+		t.Errorf("proxy-read-timeout = %q, want 120s", got["proxy-read-timeout"])
+	}
+	if got["proxy-buffer-size"] != "16k" {
+		t.Errorf("proxy-buffer-size = %q, want 16k", got["proxy-buffer-size"])
+	}
+	if got["underscore-in-headers"] != "on" {
+		t.Errorf("underscore-in-headers = %q, want on", got["underscore-in-headers"])
+	}
+}
+
+func TestDokkuReaderProcessAndLocking(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}):      {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:report", "web"}): {
+				Output: "=====> web\n       Ps restart policy:   on-failure:3\n       Ps procfile path:    Procfile.web\n",
+			},
+			fmt.Sprintf("%v", []string{"apps:locked", "web"}): {Output: "", Err: nil},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}): {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):             {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):              {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+
+	// Process
+	if app.Process == nil {
+		t.Fatal("expected Process to be set")
+	}
+	if app.Process.RestartPolicy != "on-failure:3" {
+		t.Errorf("Process.RestartPolicy = %q, want on-failure:3", app.Process.RestartPolicy)
+	}
+	if app.Process.ProcfilePath != "Procfile.web" {
+		t.Errorf("Process.ProcfilePath = %q, want Procfile.web", app.Process.ProcfilePath)
+	}
+
+	// Locking
+	if !app.Locked {
+		t.Error("Locked should be true")
 	}
 }
 

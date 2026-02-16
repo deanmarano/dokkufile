@@ -472,6 +472,33 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
+	// Scripts (deployment tasks)
+	if !scriptsEqual(desired.Scripts, actual.Scripts) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "scripts",
+		})
+	}
+
+	// Locked
+	if desired.Locked != actual.Locked {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "locked",
+		})
+	}
+
+	// Process management
+	if !processEqual(desired.Process, actual.Process) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "process",
+		})
+	}
+
 	return steps
 }
 
@@ -533,7 +560,11 @@ func nginxConfigEqual(a, b *schema.NginxConfig) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return *a == *b
+	return a.HSTS == b.HSTS &&
+		a.HSTSIncludeSubdomains == b.HSTSIncludeSubdomains &&
+		a.HSTSMaxAge == b.HSTSMaxAge &&
+		a.HSTSPreload == b.HSTSPreload &&
+		mapEqual(a.Properties, b.Properties)
 }
 
 func proxyConfigEqual(a, b *schema.ProxyConfig) bool {
@@ -639,4 +670,24 @@ func mapIntEqual(a, b map[string]int) bool {
 		}
 	}
 	return true
+}
+
+func scriptsEqual(a, b *schema.ScriptsConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func processEqual(a, b *schema.ProcessConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }

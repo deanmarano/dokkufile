@@ -277,7 +277,12 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			if maxAge := parseReportField(out, "Nginx hsts max age"); maxAge != "" {
 				fmt.Sscanf(maxAge, "%d", &nginx.HSTSMaxAge)
 			}
-			if nginx.HSTS || nginx.HSTSIncludeSubdomains || nginx.HSTSMaxAge > 0 || nginx.HSTSPreload {
+			// Parse extended nginx properties
+			props := parseNginxProperties(out)
+			if len(props) > 0 {
+				nginx.Properties = props
+			}
+			if nginx.HSTS || nginx.HSTSIncludeSubdomains || nginx.HSTSMaxAge > 0 || nginx.HSTSPreload || len(nginx.Properties) > 0 {
 				app.Nginx = nginx
 			}
 		}
@@ -355,6 +360,22 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			app.Maintenance = parseReportField(out, "Maintenance enabled") == "true"
 		}
 
+		// Process management
+		if out, err := r.Runner.Run("ps:report", appName); err == nil {
+			proc := &schema.ProcessConfig{
+				RestartPolicy: parseReportField(out, "Ps restart policy"),
+				ProcfilePath:  parseReportField(out, "Ps procfile path"),
+			}
+			if proc.RestartPolicy != "" || proc.ProcfilePath != "" {
+				app.Process = proc
+			}
+		}
+
+		// Deploy locking
+		if _, err := r.Runner.Run("apps:locked", appName); err == nil {
+			app.Locked = true
+		}
+
 		// Nginx template (via FileRunner)
 		if r.FileRunner != nil {
 			sigilPath := fmt.Sprintf("/home/dokku/%s/nginx.conf.sigil", appName)
@@ -363,11 +384,11 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			}
 		}
 
-		// App.json (healthchecks + cron)
+		// App.json (healthchecks + cron + scripts)
 		if r.FileRunner != nil {
 			appJSONPath := fmt.Sprintf("/home/dokku/%s/app.json", appName)
 			if content, err := r.FileRunner.ReadFile(appJSONPath); err == nil && content != "" {
-				app.Healthchecks, app.Cron = parseAppJSON(content)
+				app.Healthchecks, app.Cron, app.Scripts = parseAppJSON(content)
 			}
 		}
 

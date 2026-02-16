@@ -192,6 +192,16 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 		cmds = append(cmds, []string{"maintenance:enable", appName})
 	}
 
+	// Process management
+	if app.Process != nil {
+		cmds = append(cmds, processCommands(appName, app.Process)...)
+	}
+
+	// Locked
+	if app.Locked {
+		cmds = append(cmds, []string{"apps:lock", appName})
+	}
+
 	return cmds, nil
 }
 
@@ -293,6 +303,21 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 		}
 		return [][]string{{"maintenance:disable", s.App}}, nil
 
+	case "scripts":
+		return e.appJsonCommands(s.App, dApp)
+
+	case "locked":
+		if dApp.Locked {
+			return [][]string{{"apps:lock", s.App}}, nil
+		}
+		return [][]string{{"apps:unlock", s.App}}, nil
+
+	case "process":
+		if dApp.Process == nil {
+			return nil, nil
+		}
+		return processCommands(s.App, dApp.Process), nil
+
 	default:
 		return nil, fmt.Errorf("unknown field: %s", s.Field)
 	}
@@ -347,6 +372,10 @@ func nginxConfigCommands(appName string, nginx *schema.NginxConfig) [][]string {
 		cmds = append(cmds, []string{"nginx:set", appName, "hsts-max-age", strconv.Itoa(nginx.HSTSMaxAge)})
 	}
 	cmds = append(cmds, []string{"nginx:set", appName, "hsts-preload", strconv.FormatBool(nginx.HSTSPreload)})
+	// Extended properties
+	for _, k := range sortedKeys(nginx.Properties) {
+		cmds = append(cmds, []string{"nginx:set", appName, k, nginx.Properties[k]})
+	}
 	return cmds
 }
 
@@ -398,6 +427,21 @@ func buildAppJSON(app schema.App) map[string]interface{} {
 			}
 		}
 		result["cron"] = cron
+	}
+
+	if app.Scripts != nil {
+		dokkuScripts := map[string]string{}
+		if app.Scripts.Predeploy != "" {
+			dokkuScripts["predeploy"] = app.Scripts.Predeploy
+		}
+		if app.Scripts.Postdeploy != "" {
+			dokkuScripts["postdeploy"] = app.Scripts.Postdeploy
+		}
+		if len(dokkuScripts) > 0 {
+			result["scripts"] = map[string]interface{}{
+				"dokku": dokkuScripts,
+			}
+		}
 	}
 
 	return result
@@ -908,6 +952,21 @@ func registryCommands(appName string, registry *schema.RegistryConfig) [][]strin
 	}
 	if registry.PushExtraTags != "" {
 		cmds = append(cmds, []string{"registry:set", appName, "push-extra-tags", registry.PushExtraTags})
+	}
+	return cmds
+}
+
+// processCommands generates ps:set commands.
+func processCommands(appName string, proc *schema.ProcessConfig) [][]string {
+	if proc == nil {
+		return nil
+	}
+	var cmds [][]string
+	if proc.RestartPolicy != "" {
+		cmds = append(cmds, []string{"ps:set", appName, "restart-policy", proc.RestartPolicy})
+	}
+	if proc.ProcfilePath != "" {
+		cmds = append(cmds, []string{"ps:set", appName, "procfile-path", proc.ProcfilePath})
 	}
 	return cmds
 }

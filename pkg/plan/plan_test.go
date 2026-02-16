@@ -845,6 +845,115 @@ func TestDetectMaintenanceChange(t *testing.T) {
 	}
 }
 
+func TestDetectScriptsChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Scripts: &schema.ScriptsConfig{Predeploy: "rake db:migrate"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx:latest"}},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "scripts" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find scripts update step")
+	}
+}
+
+func TestDetectLockedChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx:latest", Locked: true}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx:latest"}},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "locked" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find locked update step")
+	}
+}
+
+func TestDetectProcessChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Process: &schema.ProcessConfig{RestartPolicy: "always"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx:latest"}},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "process" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find process update step")
+	}
+}
+
+func TestDetectNginxPropertyChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Nginx: &schema.NginxConfig{
+					Properties: map[string]string{"client-max-body-size": "50m"},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx:latest"}},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "nginx" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find nginx update step for property change")
+	}
+}
+
 func TestNoChangesNewFields(t *testing.T) {
 	state := &schema.Dokkufile{
 		Version: "1",
@@ -862,6 +971,9 @@ func TestNoChangesNewFields(t *testing.T) {
 				Builder:     &schema.BuilderConfig{Selected: "herokuish"},
 				Registry:    &schema.RegistryConfig{Server: "registry.example.com"},
 				Maintenance: true,
+				Scripts:     &schema.ScriptsConfig{Predeploy: "rake db:migrate"},
+				Locked:      true,
+				Process:     &schema.ProcessConfig{RestartPolicy: "always"},
 			},
 		},
 	}

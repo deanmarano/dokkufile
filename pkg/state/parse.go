@@ -185,11 +185,11 @@ func setResourceValue(rv *schema.ResourceValues, resource, val string) {
 	}
 }
 
-// parseAppJSON parses an app.json file and extracts healthchecks and cron jobs.
-func parseAppJSON(content string) (map[string][]schema.HealthcheckConfig, []schema.CronJob) {
+// parseAppJSON parses an app.json file and extracts healthchecks, cron jobs, and scripts.
+func parseAppJSON(content string) (map[string][]schema.HealthcheckConfig, []schema.CronJob, *schema.ScriptsConfig) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(content), &raw); err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var healthchecks map[string][]schema.HealthcheckConfig
@@ -206,7 +206,65 @@ func parseAppJSON(content string) (map[string][]schema.HealthcheckConfig, []sche
 		}
 	}
 
-	return healthchecks, cron
+	var scripts *schema.ScriptsConfig
+	if scriptsRaw, ok := raw["scripts"]; ok {
+		var scriptsMap map[string]json.RawMessage
+		if err := json.Unmarshal(scriptsRaw, &scriptsMap); err == nil {
+			if dokkuRaw, ok := scriptsMap["dokku"]; ok {
+				var dokkuScripts schema.ScriptsConfig
+				if err := json.Unmarshal(dokkuRaw, &dokkuScripts); err == nil {
+					if dokkuScripts.Predeploy != "" || dokkuScripts.Postdeploy != "" {
+						scripts = &dokkuScripts
+					}
+				}
+			}
+		}
+	}
+
+	return healthchecks, cron, scripts
+}
+
+// nginxPropertyNames lists known nginx properties (excluding HSTS which has typed fields).
+var nginxPropertyNames = []string{
+	"access-log-format",
+	"access-log-path",
+	"bind-address-ipv4",
+	"bind-address-ipv6",
+	"client-body-timeout",
+	"client-header-timeout",
+	"client-max-body-size",
+	"disable-custom-config",
+	"error-log-path",
+	"keepalive-timeout",
+	"lingering-timeout",
+	"nginx-conf-sigil-path",
+	"proxy-buffer-size",
+	"proxy-buffering",
+	"proxy-buffers",
+	"proxy-busy-buffers-size",
+	"proxy-connect-timeout",
+	"proxy-read-timeout",
+	"proxy-send-timeout",
+	"send-timeout",
+	"underscore-in-headers",
+	"x-forwarded-for-value",
+	"x-forwarded-port-value",
+	"x-forwarded-proto-value",
+	"x-forwarded-ssl",
+}
+
+// parseNginxProperties extracts non-HSTS nginx properties from nginx:report output.
+func parseNginxProperties(output string) map[string]string {
+	result := map[string]string{}
+	for _, prop := range nginxPropertyNames {
+		// Report field name: "Nginx <property with spaces>"
+		fieldName := "Nginx " + strings.ReplaceAll(prop, "-", " ")
+		val := parseReportField(output, fieldName)
+		if val != "" {
+			result[prop] = val
+		}
+	}
+	return result
 }
 
 // parseReportConfigFields extracts key=value config fields from a report-style output.

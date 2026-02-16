@@ -53,6 +53,9 @@ type App struct {
 	Builder       *BuilderConfig                   `yaml:"builder,omitempty" json:"builder,omitempty"`
 	Registry      *RegistryConfig                  `yaml:"registry,omitempty" json:"registry,omitempty"`
 	Maintenance   bool                             `yaml:"maintenance,omitempty" json:"maintenance,omitempty"`
+	Scripts       *ScriptsConfig                   `yaml:"scripts,omitempty" json:"scripts,omitempty"`
+	Locked        bool                             `yaml:"locked,omitempty" json:"locked,omitempty"`
+	Process       *ProcessConfig                   `yaml:"process,omitempty" json:"process,omitempty"`
 }
 
 // DockerOptions holds docker options grouped by phase.
@@ -81,10 +84,11 @@ type NetworkConfig struct {
 
 // NginxConfig holds nginx settings for an app.
 type NginxConfig struct {
-	HSTS                  bool `yaml:"hsts,omitempty" json:"hsts,omitempty"`
-	HSTSIncludeSubdomains bool `yaml:"hsts_include_subdomains,omitempty" json:"hsts_include_subdomains,omitempty"`
-	HSTSMaxAge            int  `yaml:"hsts_max_age,omitempty" json:"hsts_max_age,omitempty"`
-	HSTSPreload           bool `yaml:"hsts_preload,omitempty" json:"hsts_preload,omitempty"`
+	HSTS                  bool              `yaml:"hsts,omitempty" json:"hsts,omitempty"`
+	HSTSIncludeSubdomains bool              `yaml:"hsts_include_subdomains,omitempty" json:"hsts_include_subdomains,omitempty"`
+	HSTSMaxAge            int               `yaml:"hsts_max_age,omitempty" json:"hsts_max_age,omitempty"`
+	HSTSPreload           bool              `yaml:"hsts_preload,omitempty" json:"hsts_preload,omitempty"`
+	Properties            map[string]string `yaml:"properties,omitempty" json:"properties,omitempty"`
 }
 
 // ProxyConfig holds proxy settings for an app.
@@ -159,6 +163,18 @@ type RegistryConfig struct {
 	ImageRepo     string `yaml:"image_repo,omitempty" json:"image_repo,omitempty"`
 	PushOnRelease bool   `yaml:"push_on_release,omitempty" json:"push_on_release,omitempty"`
 	PushExtraTags string `yaml:"push_extra_tags,omitempty" json:"push_extra_tags,omitempty"`
+}
+
+// ScriptsConfig holds deployment task scripts for app.json.
+type ScriptsConfig struct {
+	Predeploy  string `yaml:"predeploy,omitempty" json:"predeploy,omitempty"`
+	Postdeploy string `yaml:"postdeploy,omitempty" json:"postdeploy,omitempty"`
+}
+
+// ProcessConfig holds process management settings.
+type ProcessConfig struct {
+	RestartPolicy string `yaml:"restart_policy,omitempty" json:"restart_policy,omitempty"`
+	ProcfilePath  string `yaml:"procfile_path,omitempty" json:"procfile_path,omitempty"`
 }
 
 // MailService represents a mail service.

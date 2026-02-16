@@ -1235,6 +1235,180 @@ func TestCreateAppWithNewFeatures(t *testing.T) {
 	}
 }
 
+func TestUpdateNginxProperties(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "nginx"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Nginx: &schema.NginxConfig{
+				HSTS: true,
+				Properties: map[string]string{
+					"client-max-body-size": "50m",
+					"proxy-read-timeout":   "120s",
+				},
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("nginx:set", "myapp", "hsts", "true") {
+		t.Errorf("expected nginx:set hsts, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("nginx:set", "myapp", "client-max-body-size", "50m") {
+		t.Errorf("expected nginx:set client-max-body-size, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("nginx:set", "myapp", "proxy-read-timeout", "120s") {
+		t.Errorf("expected nginx:set proxy-read-timeout, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateScripts(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "scripts"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Scripts: &schema.ScriptsConfig{
+				Predeploy:  "rake db:migrate",
+				Postdeploy: "rake cache:clear",
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	// Should generate an app-json:set command containing scripts
+	found := false
+	for _, cmd := range runner.Commands {
+		if len(cmd) >= 2 && cmd[0] == "app-json:set" && cmd[1] == "myapp" {
+			found = true
+			if len(cmd) >= 3 {
+				if !strings.Contains(cmd[2], "predeploy") || !strings.Contains(cmd[2], "postdeploy") {
+					t.Errorf("app-json:set should contain scripts, got: %s", cmd[2])
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected app-json:set command, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateLocked(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "locked"},
+		},
+	}
+
+	// Lock
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Locked: true}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("apps:lock", "myapp") {
+		t.Errorf("expected apps:lock, got: %v", runner.commandStrings())
+	}
+
+	// Unlock
+	runner2 := &RecordingRunner{}
+	executor2 := &Executor{Runner: runner2}
+	desired2 := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Locked: false}},
+	}
+	actual2 := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Locked: true}},
+	}
+
+	err = executor2.Execute(p, desired2, actual2)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner2.hasCommand("apps:unlock", "myapp") {
+		t.Errorf("expected apps:unlock, got: %v", runner2.commandStrings())
+	}
+}
+
+func TestUpdateProcess(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "process"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Process: &schema.ProcessConfig{
+				RestartPolicy: "on-failure:3",
+				ProcfilePath:  "Procfile.web",
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("ps:set", "myapp", "restart-policy", "on-failure:3") {
+		t.Errorf("expected ps:set restart-policy, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("ps:set", "myapp", "procfile-path", "Procfile.web") {
+		t.Errorf("expected ps:set procfile-path, got: %v", runner.commandStrings())
+	}
+}
+
 // FailingRunner fails on a specific command prefix.
 type FailingRunner struct {
 	failOn string
