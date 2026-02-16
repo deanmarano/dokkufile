@@ -127,6 +127,64 @@ func parseServiceList(output string) []string {
 	return services
 }
 
+// parseResourceReport parses resource:report output into per-process-type ResourceConfig.
+// Lines look like: "  web limit cpu:    1" or "  web reservation memory:  512m"
+func parseResourceReport(output string) map[string]schema.ResourceConfig {
+	result := map[string]schema.ResourceConfig{}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "=====>") {
+			continue
+		}
+		// Format: "<proc> <limit|reservation> <resource>:  <value>"
+		colonIdx := strings.Index(trimmed, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(trimmed[:colonIdx])
+		val := strings.TrimSpace(trimmed[colonIdx+1:])
+		if val == "" {
+			continue
+		}
+		parts := strings.Fields(key)
+		if len(parts) < 3 {
+			continue
+		}
+		proc := parts[0]
+		category := parts[1] // "limit" or "reservation"
+		resource := strings.Join(parts[2:], " ")
+
+		rc := result[proc]
+		switch category {
+		case "limit":
+			setResourceValue(&rc.Limits, resource, val)
+		case "reservation":
+			setResourceValue(&rc.Reservations, resource, val)
+		}
+		result[proc] = rc
+	}
+	return result
+}
+
+func setResourceValue(rv *schema.ResourceValues, resource, val string) {
+	switch resource {
+	case "cpu":
+		rv.CPU = val
+	case "memory":
+		rv.Memory = val
+	case "memory swap":
+		rv.MemorySwap = val
+	case "network":
+		rv.Network = val
+	case "network ingress":
+		rv.NetworkIngress = val
+	case "network egress":
+		rv.NetworkEgress = val
+	case "nvidia gpu":
+		rv.NvidiaGPU = val
+	}
+}
+
 // parseAppJSON parses an app.json file and extracts healthchecks and cron jobs.
 func parseAppJSON(content string) (map[string][]schema.HealthcheckConfig, []schema.CronJob) {
 	var raw map[string]json.RawMessage

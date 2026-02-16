@@ -427,6 +427,51 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
+	// Resources
+	if !resourcesEqual(desired.Resources, actual.Resources) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "resources",
+		})
+	}
+
+	// Checks
+	if !checksEqual(desired.Checks, actual.Checks) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "checks",
+		})
+	}
+
+	// Builder
+	if !builderEqual(desired.Builder, actual.Builder) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "builder",
+		})
+	}
+
+	// Registry
+	if !registryEqual(desired.Registry, actual.Registry) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "registry",
+		})
+	}
+
+	// Maintenance
+	if desired.Maintenance != actual.Maintenance {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "maintenance",
+		})
+	}
+
 	return steps
 }
 
@@ -539,6 +584,49 @@ func cronEqual(a, b []schema.CronJob) bool {
 		}
 	}
 	return true
+}
+
+func resourcesEqual(a, b map[string]schema.ResourceConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || av != bv {
+			return false
+		}
+	}
+	return true
+}
+
+func checksEqual(a, b *schema.ChecksConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return sliceEqual(a.Disabled, b.Disabled) && sliceEqual(a.Skipped, b.Skipped) && a.WaitToRetire == b.WaitToRetire
+}
+
+func builderEqual(a, b *schema.BuilderConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func registryEqual(a, b *schema.RegistryConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 func mapIntEqual(a, b map[string]int) bool {

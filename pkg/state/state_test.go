@@ -891,6 +891,142 @@ func TestDokkuReaderAuthFrontends(t *testing.T) {
 	}
 }
 
+func TestParseResourceReport(t *testing.T) {
+	input := `=====> myapp
+       web limit cpu:              1
+       web limit memory:           512m
+       web reservation memory:     256m
+       worker limit cpu:           2
+       worker limit nvidia gpu:    1
+`
+	got := parseResourceReport(input)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 process types, got %d", len(got))
+	}
+	if got["web"].Limits.CPU != "1" {
+		t.Errorf("web limit cpu = %q, want 1", got["web"].Limits.CPU)
+	}
+	if got["web"].Limits.Memory != "512m" {
+		t.Errorf("web limit memory = %q, want 512m", got["web"].Limits.Memory)
+	}
+	if got["web"].Reservations.Memory != "256m" {
+		t.Errorf("web reservation memory = %q, want 256m", got["web"].Reservations.Memory)
+	}
+	if got["worker"].Limits.CPU != "2" {
+		t.Errorf("worker limit cpu = %q, want 2", got["worker"].Limits.CPU)
+	}
+	if got["worker"].Limits.NvidiaGPU != "1" {
+		t.Errorf("worker limit nvidia gpu = %q, want 1", got["worker"].Limits.NvidiaGPU)
+	}
+}
+
+func TestParseResourceReportEmpty(t *testing.T) {
+	got := parseResourceReport("")
+	if len(got) != 0 {
+		t.Errorf("expected 0 entries, got %d", len(got))
+	}
+}
+
+func TestDokkuReaderResourcesAndChecks(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}):      {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"resource:report", "web"}): {
+				Output: "=====> web\n       web limit cpu:          2\n       web limit memory:       1024m\n       web reservation memory: 512m\n",
+			},
+			fmt.Sprintf("%v", []string{"checks:report", "web"}): {
+				Output: "=====> web\n       Checks disabled list:   worker\n       Checks skipped list:    \n       Checks wait to retire:  30\n",
+			},
+			fmt.Sprintf("%v", []string{"builder:report", "web"}): {
+				Output: "=====> web\n       Builder selected:   herokuish\n       Builder build dir:  src\n",
+			},
+			fmt.Sprintf("%v", []string{"registry:report", "web"}): {
+				Output: "=====> web\n       Registry server:           registry.example.com\n       Registry image repo:        myorg/myapp\n       Registry push on release:   true\n       Registry push extra tags:   latest\n",
+			},
+			fmt.Sprintf("%v", []string{"maintenance:report", "web"}): {
+				Output: "=====> web\n       Maintenance enabled:  true\n",
+			},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}): {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):             {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):              {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+
+	// Resources
+	if len(app.Resources) != 1 {
+		t.Fatalf("expected 1 resource proc type, got %d", len(app.Resources))
+	}
+	if app.Resources["web"].Limits.CPU != "2" {
+		t.Errorf("resource web limit cpu = %q, want 2", app.Resources["web"].Limits.CPU)
+	}
+	if app.Resources["web"].Limits.Memory != "1024m" {
+		t.Errorf("resource web limit memory = %q, want 1024m", app.Resources["web"].Limits.Memory)
+	}
+	if app.Resources["web"].Reservations.Memory != "512m" {
+		t.Errorf("resource web reservation memory = %q, want 512m", app.Resources["web"].Reservations.Memory)
+	}
+
+	// Checks
+	if app.Checks == nil {
+		t.Fatal("expected Checks to be set")
+	}
+	if len(app.Checks.Disabled) != 1 || app.Checks.Disabled[0] != "worker" {
+		t.Errorf("Checks.Disabled = %v, want [worker]", app.Checks.Disabled)
+	}
+	if app.Checks.WaitToRetire != 30 {
+		t.Errorf("Checks.WaitToRetire = %d, want 30", app.Checks.WaitToRetire)
+	}
+
+	// Builder
+	if app.Builder == nil {
+		t.Fatal("expected Builder to be set")
+	}
+	if app.Builder.Selected != "herokuish" {
+		t.Errorf("Builder.Selected = %q, want herokuish", app.Builder.Selected)
+	}
+	if app.Builder.BuildDir != "src" {
+		t.Errorf("Builder.BuildDir = %q, want src", app.Builder.BuildDir)
+	}
+
+	// Registry
+	if app.Registry == nil {
+		t.Fatal("expected Registry to be set")
+	}
+	if app.Registry.Server != "registry.example.com" {
+		t.Errorf("Registry.Server = %q, want registry.example.com", app.Registry.Server)
+	}
+	if app.Registry.ImageRepo != "myorg/myapp" {
+		t.Errorf("Registry.ImageRepo = %q, want myorg/myapp", app.Registry.ImageRepo)
+	}
+	if !app.Registry.PushOnRelease {
+		t.Error("Registry.PushOnRelease should be true")
+	}
+	if app.Registry.PushExtraTags != "latest" {
+		t.Errorf("Registry.PushExtraTags = %q, want latest", app.Registry.PushExtraTags)
+	}
+
+	// Maintenance
+	if !app.Maintenance {
+		t.Error("Maintenance should be true")
+	}
+}
+
 // Verify that the Reader interface is satisfied.
 var _ Reader = (*DokkuReader)(nil)
 // Verify the unused import is used

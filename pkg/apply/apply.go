@@ -167,6 +167,31 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 		cmds = append(cmds, proxyConfigCommands(appName, app.Proxy)...)
 	}
 
+	// Resources
+	if len(app.Resources) > 0 {
+		cmds = append(cmds, resourceCommands(appName, app.Resources)...)
+	}
+
+	// Checks
+	if app.Checks != nil {
+		cmds = append(cmds, checksCommands(appName, app.Checks)...)
+	}
+
+	// Builder
+	if app.Builder != nil {
+		cmds = append(cmds, builderCommands(appName, app.Builder)...)
+	}
+
+	// Registry
+	if app.Registry != nil {
+		cmds = append(cmds, registryCommands(appName, app.Registry)...)
+	}
+
+	// Maintenance
+	if app.Maintenance {
+		cmds = append(cmds, []string{"maintenance:enable", appName})
+	}
+
 	return cmds, nil
 }
 
@@ -243,6 +268,30 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 
 	case "nginx_template":
 		return e.nginxTemplateCommands(s.App, dApp.NginxTemplate)
+
+	case "resources":
+		return resourceCommands(s.App, dApp.Resources), nil
+
+	case "checks":
+		return checksCommands(s.App, dApp.Checks), nil
+
+	case "builder":
+		if dApp.Builder == nil {
+			return nil, nil
+		}
+		return builderCommands(s.App, dApp.Builder), nil
+
+	case "registry":
+		if dApp.Registry == nil {
+			return nil, nil
+		}
+		return registryCommands(s.App, dApp.Registry), nil
+
+	case "maintenance":
+		if dApp.Maintenance {
+			return [][]string{{"maintenance:enable", s.App}}, nil
+		}
+		return [][]string{{"maintenance:disable", s.App}}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown field: %s", s.Field)
@@ -758,4 +807,107 @@ func toSet(items []string) map[string]bool {
 		s[item] = true
 	}
 	return s
+}
+
+// resourceCommands generates resource:limit and resource:reserve commands.
+func resourceCommands(appName string, resources map[string]schema.ResourceConfig) [][]string {
+	var cmds [][]string
+	procs := make([]string, 0, len(resources))
+	for proc := range resources {
+		procs = append(procs, proc)
+	}
+	sort.Strings(procs)
+
+	for _, proc := range procs {
+		rc := resources[proc]
+		// Limits
+		for _, rv := range []struct {
+			flag string
+			val  string
+		}{
+			{"--cpu", rc.Limits.CPU},
+			{"--memory", rc.Limits.Memory},
+			{"--memory-swap", rc.Limits.MemorySwap},
+			{"--network", rc.Limits.Network},
+			{"--network-ingress", rc.Limits.NetworkIngress},
+			{"--network-egress", rc.Limits.NetworkEgress},
+			{"--nvidia-gpu", rc.Limits.NvidiaGPU},
+		} {
+			if rv.val != "" {
+				cmds = append(cmds, []string{"resource:limit", appName, "--process-type", proc, rv.flag, rv.val})
+			}
+		}
+		// Reservations
+		for _, rv := range []struct {
+			flag string
+			val  string
+		}{
+			{"--cpu", rc.Reservations.CPU},
+			{"--memory", rc.Reservations.Memory},
+			{"--memory-swap", rc.Reservations.MemorySwap},
+			{"--network", rc.Reservations.Network},
+			{"--network-ingress", rc.Reservations.NetworkIngress},
+			{"--network-egress", rc.Reservations.NetworkEgress},
+			{"--nvidia-gpu", rc.Reservations.NvidiaGPU},
+		} {
+			if rv.val != "" {
+				cmds = append(cmds, []string{"resource:reserve", appName, "--process-type", proc, rv.flag, rv.val})
+			}
+		}
+	}
+	return cmds
+}
+
+// checksCommands generates checks:disable, checks:skip, and checks:set commands.
+func checksCommands(appName string, checks *schema.ChecksConfig) [][]string {
+	if checks == nil {
+		return nil
+	}
+	var cmds [][]string
+	if len(checks.Disabled) > 0 {
+		cmds = append(cmds, append([]string{"checks:disable", appName}, checks.Disabled...))
+	}
+	if len(checks.Skipped) > 0 {
+		cmds = append(cmds, append([]string{"checks:skip", appName}, checks.Skipped...))
+	}
+	if checks.WaitToRetire > 0 {
+		cmds = append(cmds, []string{"checks:set", appName, "wait-to-retire", strconv.Itoa(checks.WaitToRetire)})
+	}
+	return cmds
+}
+
+// builderCommands generates builder:set commands.
+func builderCommands(appName string, builder *schema.BuilderConfig) [][]string {
+	if builder == nil {
+		return nil
+	}
+	var cmds [][]string
+	if builder.Selected != "" {
+		cmds = append(cmds, []string{"builder:set", appName, "selected", builder.Selected})
+	}
+	if builder.BuildDir != "" {
+		cmds = append(cmds, []string{"builder:set", appName, "build-dir", builder.BuildDir})
+	}
+	return cmds
+}
+
+// registryCommands generates registry:set commands.
+func registryCommands(appName string, registry *schema.RegistryConfig) [][]string {
+	if registry == nil {
+		return nil
+	}
+	var cmds [][]string
+	if registry.Server != "" {
+		cmds = append(cmds, []string{"registry:set", appName, "server", registry.Server})
+	}
+	if registry.ImageRepo != "" {
+		cmds = append(cmds, []string{"registry:set", appName, "image-repo", registry.ImageRepo})
+	}
+	if registry.PushOnRelease {
+		cmds = append(cmds, []string{"registry:set", appName, "push-on-release", "true"})
+	}
+	if registry.PushExtraTags != "" {
+		cmds = append(cmds, []string{"registry:set", appName, "push-extra-tags", registry.PushExtraTags})
+	}
+	return cmds
 }

@@ -976,6 +976,265 @@ func TestCreateAppWithGitConfig(t *testing.T) {
 	}
 }
 
+func TestUpdateResources(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "resources"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Resources: map[string]schema.ResourceConfig{
+				"web": {
+					Limits:       schema.ResourceValues{CPU: "2", Memory: "1024m"},
+					Reservations: schema.ResourceValues{Memory: "512m"},
+				},
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("resource:limit", "myapp", "--process-type", "web", "--cpu", "2") {
+		t.Errorf("expected resource:limit cpu, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("resource:limit", "myapp", "--process-type", "web", "--memory", "1024m") {
+		t.Errorf("expected resource:limit memory, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("resource:reserve", "myapp", "--process-type", "web", "--memory", "512m") {
+		t.Errorf("expected resource:reserve memory, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateChecks(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "checks"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Checks: &schema.ChecksConfig{
+				Disabled:     []string{"worker"},
+				WaitToRetire: 30,
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("checks:disable", "myapp", "worker") {
+		t.Errorf("expected checks:disable, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("checks:set", "myapp", "wait-to-retire", "30") {
+		t.Errorf("expected checks:set wait-to-retire, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateBuilder(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "builder"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Builder: &schema.BuilderConfig{
+				Selected: "herokuish",
+				BuildDir: "src",
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("builder:set", "myapp", "selected", "herokuish") {
+		t.Errorf("expected builder:set selected, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("builder:set", "myapp", "build-dir", "src") {
+		t.Errorf("expected builder:set build-dir, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateRegistry(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "registry"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Registry: &schema.RegistryConfig{
+				Server:        "registry.example.com",
+				ImageRepo:     "myorg/myapp",
+				PushOnRelease: true,
+				PushExtraTags: "latest",
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("registry:set", "myapp", "server", "registry.example.com") {
+		t.Errorf("expected registry:set server, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("registry:set", "myapp", "image-repo", "myorg/myapp") {
+		t.Errorf("expected registry:set image-repo, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("registry:set", "myapp", "push-on-release", "true") {
+		t.Errorf("expected registry:set push-on-release, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("registry:set", "myapp", "push-extra-tags", "latest") {
+		t.Errorf("expected registry:set push-extra-tags, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateMaintenance(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	// Enable
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "maintenance"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Maintenance: true}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("maintenance:enable", "myapp") {
+		t.Errorf("expected maintenance:enable, got: %v", runner.commandStrings())
+	}
+
+	// Disable
+	runner2 := &RecordingRunner{}
+	executor2 := &Executor{Runner: runner2}
+	desired2 := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Maintenance: false}},
+	}
+	actual2 := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Maintenance: true}},
+	}
+
+	err = executor2.Execute(p, desired2, actual2)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner2.hasCommand("maintenance:disable", "myapp") {
+		t.Errorf("expected maintenance:disable, got: %v", runner2.commandStrings())
+	}
+}
+
+func TestCreateAppWithNewFeatures(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateApp, App: "myapp"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Resources: map[string]schema.ResourceConfig{
+					"web": {Limits: schema.ResourceValues{CPU: "1"}},
+				},
+				Checks:      &schema.ChecksConfig{Disabled: []string{"worker"}},
+				Builder:     &schema.BuilderConfig{Selected: "herokuish"},
+				Registry:    &schema.RegistryConfig{Server: "registry.example.com"},
+				Maintenance: true,
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	cmds := runner.commandStrings()
+	if !runner.hasCommand("apps:create", "myapp") {
+		t.Errorf("expected apps:create, got: %v", cmds)
+	}
+	if !runner.hasCommand("resource:limit", "myapp", "--process-type", "web", "--cpu", "1") {
+		t.Errorf("expected resource:limit, got: %v", cmds)
+	}
+	if !runner.hasCommand("checks:disable", "myapp", "worker") {
+		t.Errorf("expected checks:disable, got: %v", cmds)
+	}
+	if !runner.hasCommand("builder:set", "myapp", "selected", "herokuish") {
+		t.Errorf("expected builder:set, got: %v", cmds)
+	}
+	if !runner.hasCommand("registry:set", "myapp", "server", "registry.example.com") {
+		t.Errorf("expected registry:set, got: %v", cmds)
+	}
+	if !runner.hasCommand("maintenance:enable", "myapp") {
+		t.Errorf("expected maintenance:enable, got: %v", cmds)
+	}
+}
+
 // FailingRunner fails on a specific command prefix.
 type FailingRunner struct {
 	failOn string

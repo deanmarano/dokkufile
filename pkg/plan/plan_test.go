@@ -693,6 +693,158 @@ func TestDetectAuthFrontendCreate(t *testing.T) {
 	}
 }
 
+func TestDetectResourceChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Resources: map[string]schema.ResourceConfig{
+					"web": {Limits: schema.ResourceValues{CPU: "2", Memory: "1024m"}},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "resources" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find resources update step")
+	}
+}
+
+func TestDetectChecksChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:  "nginx:latest",
+				Checks: &schema.ChecksConfig{Disabled: []string{"worker"}, WaitToRetire: 30},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "checks" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find checks update step")
+	}
+}
+
+func TestDetectBuilderChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Builder: &schema.BuilderConfig{Selected: "herokuish"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "builder" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find builder update step")
+	}
+}
+
+func TestDetectRegistryChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:    "nginx:latest",
+				Registry: &schema.RegistryConfig{Server: "registry.example.com"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "registry" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find registry update step")
+	}
+}
+
+func TestDetectMaintenanceChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:       "nginx:latest",
+				Maintenance: true,
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "maintenance" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find maintenance update step")
+	}
+}
+
 func TestNoChangesNewFields(t *testing.T) {
 	state := &schema.Dokkufile{
 		Version: "1",
@@ -703,6 +855,13 @@ func TestNoChangesNewFields(t *testing.T) {
 				Network: &schema.NetworkConfig{InitialNetwork: "mynet"},
 				Nginx:   &schema.NginxConfig{HSTS: true},
 				Proxy:   &schema.ProxyConfig{Enabled: true, Type: "nginx"},
+				Resources: map[string]schema.ResourceConfig{
+					"web": {Limits: schema.ResourceValues{CPU: "1"}},
+				},
+				Checks:      &schema.ChecksConfig{Disabled: []string{"worker"}},
+				Builder:     &schema.BuilderConfig{Selected: "herokuish"},
+				Registry:    &schema.RegistryConfig{Server: "registry.example.com"},
+				Maintenance: true,
 			},
 		},
 	}

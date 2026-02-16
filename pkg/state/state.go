@@ -67,7 +67,11 @@ type DokkuReader struct {
 }
 
 // serviceTypes lists the backing service plugins to scan.
-var serviceTypes = []string{"postgres", "redis", "mysql", "mariadb", "mongo"}
+var serviceTypes = []string{
+	"postgres", "redis", "mysql", "mariadb", "mongo",
+	"clickhouse", "couchdb", "elasticsearch", "memcached",
+	"meilisearch", "nats", "rabbitmq", "rethinkdb", "solr", "typesense",
+}
 
 // Read shells out to dokku to build the current server state.
 func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
@@ -295,6 +299,60 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			if sslPresent == "true" {
 				app.SSL = &schema.SSLConfig{}
 			}
+		}
+
+		// Resource limits
+		if out, err := r.Runner.Run("resource:report", appName); err == nil {
+			resources := parseResourceReport(out)
+			if len(resources) > 0 {
+				app.Resources = resources
+			}
+		}
+
+		// Checks (zero-downtime deploy)
+		if out, err := r.Runner.Run("checks:report", appName); err == nil {
+			checks := &schema.ChecksConfig{}
+			if disabled := parseReportField(out, "Checks disabled list"); disabled != "" {
+				checks.Disabled = strings.Fields(disabled)
+			}
+			if skipped := parseReportField(out, "Checks skipped list"); skipped != "" {
+				checks.Skipped = strings.Fields(skipped)
+			}
+			if wtr := parseReportField(out, "Checks wait to retire"); wtr != "" {
+				fmt.Sscanf(wtr, "%d", &checks.WaitToRetire)
+			}
+			if len(checks.Disabled) > 0 || len(checks.Skipped) > 0 || checks.WaitToRetire > 0 {
+				app.Checks = checks
+			}
+		}
+
+		// Builder settings
+		if out, err := r.Runner.Run("builder:report", appName); err == nil {
+			builder := &schema.BuilderConfig{
+				Selected: parseReportField(out, "Builder selected"),
+				BuildDir: parseReportField(out, "Builder build dir"),
+			}
+			if builder.Selected != "" || builder.BuildDir != "" {
+				app.Builder = builder
+			}
+		}
+
+		// Registry settings
+		if out, err := r.Runner.Run("registry:report", appName); err == nil {
+			reg := &schema.RegistryConfig{
+				Server:        parseReportField(out, "Registry server"),
+				ImageRepo:     parseReportField(out, "Registry image repo"),
+				PushOnRelease: parseReportField(out, "Registry push on release") == "true",
+				PushExtraTags: parseReportField(out, "Registry push extra tags"),
+			}
+			if reg.Server != "" || reg.ImageRepo != "" || reg.PushOnRelease || reg.PushExtraTags != "" {
+				app.Registry = reg
+			}
+		}
+
+		// Maintenance mode
+		if out, err := r.Runner.Run("maintenance:report", appName); err == nil {
+			app.Maintenance = parseReportField(out, "Maintenance enabled") == "true"
 		}
 
 		// Nginx template (via FileRunner)

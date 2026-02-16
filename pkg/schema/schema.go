@@ -46,8 +46,13 @@ type App struct {
 	Mail          string            `yaml:"mail,omitempty" json:"mail,omitempty"`
 	Healthchecks  map[string][]HealthcheckConfig `yaml:"healthchecks,omitempty" json:"healthchecks,omitempty"`
 	Cron          []CronJob         `yaml:"cron,omitempty" json:"cron,omitempty"`
-	NginxTemplate string            `yaml:"nginx_template,omitempty" json:"nginx_template,omitempty"`
-	Scale         map[string]int    `yaml:"scale,omitempty" json:"scale,omitempty"`
+	NginxTemplate string                           `yaml:"nginx_template,omitempty" json:"nginx_template,omitempty"`
+	Scale         map[string]int                   `yaml:"scale,omitempty" json:"scale,omitempty"`
+	Resources     map[string]ResourceConfig        `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Checks        *ChecksConfig                    `yaml:"checks,omitempty" json:"checks,omitempty"`
+	Builder       *BuilderConfig                   `yaml:"builder,omitempty" json:"builder,omitempty"`
+	Registry      *RegistryConfig                  `yaml:"registry,omitempty" json:"registry,omitempty"`
+	Maintenance   bool                             `yaml:"maintenance,omitempty" json:"maintenance,omitempty"`
 }
 
 // DockerOptions holds docker options grouped by phase.
@@ -116,6 +121,44 @@ type HealthcheckConfig struct {
 type CronJob struct {
 	Command  string `yaml:"command" json:"command"`
 	Schedule string `yaml:"schedule" json:"schedule"`
+}
+
+// ResourceConfig holds resource limits and reservations for a process type.
+type ResourceConfig struct {
+	Limits       ResourceValues `yaml:"limits,omitempty" json:"limits,omitempty"`
+	Reservations ResourceValues `yaml:"reservations,omitempty" json:"reservations,omitempty"`
+}
+
+// ResourceValues holds individual resource values.
+type ResourceValues struct {
+	CPU            string `yaml:"cpu,omitempty" json:"cpu,omitempty"`
+	Memory         string `yaml:"memory,omitempty" json:"memory,omitempty"`
+	MemorySwap     string `yaml:"memory_swap,omitempty" json:"memory_swap,omitempty"`
+	Network        string `yaml:"network,omitempty" json:"network,omitempty"`
+	NetworkIngress string `yaml:"network_ingress,omitempty" json:"network_ingress,omitempty"`
+	NetworkEgress  string `yaml:"network_egress,omitempty" json:"network_egress,omitempty"`
+	NvidiaGPU      string `yaml:"nvidia_gpu,omitempty" json:"nvidia_gpu,omitempty"`
+}
+
+// ChecksConfig holds zero-downtime deploy check settings.
+type ChecksConfig struct {
+	Disabled      []string `yaml:"disabled,omitempty" json:"disabled,omitempty"`
+	Skipped       []string `yaml:"skipped,omitempty" json:"skipped,omitempty"`
+	WaitToRetire  int      `yaml:"wait_to_retire,omitempty" json:"wait_to_retire,omitempty"`
+}
+
+// BuilderConfig holds builder settings for an app.
+type BuilderConfig struct {
+	Selected string `yaml:"selected,omitempty" json:"selected,omitempty"`
+	BuildDir string `yaml:"build_dir,omitempty" json:"build_dir,omitempty"`
+}
+
+// RegistryConfig holds Docker registry settings for an app.
+type RegistryConfig struct {
+	Server        string `yaml:"server,omitempty" json:"server,omitempty"`
+	ImageRepo     string `yaml:"image_repo,omitempty" json:"image_repo,omitempty"`
+	PushOnRelease bool   `yaml:"push_on_release,omitempty" json:"push_on_release,omitempty"`
+	PushExtraTags string `yaml:"push_extra_tags,omitempty" json:"push_extra_tags,omitempty"`
 }
 
 // MailService represents a mail service.
