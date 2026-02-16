@@ -1,8 +1,10 @@
 package apply
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/deanmarano/dokkufile/pkg/plan"
@@ -12,8 +14,9 @@ import (
 
 // Executor applies a plan by shelling out to dokku commands.
 type Executor struct {
-	Runner state.CommandRunner
-	DryRun bool
+	Runner     state.CommandRunner
+	FileRunner state.FileRunner
+	DryRun     bool
 }
 
 // Execute runs each step in the plan, using the desired and actual state for context.
@@ -56,6 +59,33 @@ func (e *Executor) commandsForStep(s plan.Step, desired, actual *schema.Dokkufil
 
 	case plan.UpdateApp:
 		return e.updateAppCommands(s, desired, actual)
+
+	case plan.CreateMailService:
+		return e.createMailServiceCommands(s.Service, desired)
+
+	case plan.DestroyMailService:
+		return [][]string{{"mail:destroy", s.Service, "--force"}}, nil
+
+	case plan.UpdateMailService:
+		return e.updateMailServiceCommands(s.Service, desired)
+
+	case plan.CreateAuthDirectory:
+		return e.createAuthDirectoryCommands(s.Service, desired)
+
+	case plan.DestroyAuthDirectory:
+		return [][]string{{"auth:destroy", s.Service, "--force"}}, nil
+
+	case plan.UpdateAuthDirectory:
+		return e.updateAuthDirectoryCommands(s.Service, desired)
+
+	case plan.CreateAuthFrontend:
+		return e.createAuthFrontendCommands(s.Service, desired)
+
+	case plan.DestroyAuthFrontend:
+		return [][]string{{"auth:frontend:destroy", s.Service, "--force"}}, nil
+
+	case plan.UpdateAuthFrontend:
+		return e.updateAuthFrontendCommands(s.Service, desired, actual)
 
 	default:
 		return nil, fmt.Errorf("unknown action: %s", s.Action)
@@ -117,6 +147,26 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 		cmds = append(cmds, []string{"letsencrypt:enable", appName})
 	}
 
+	// Git config
+	if app.Git != nil {
+		cmds = append(cmds, gitConfigCommands(appName, app.Git)...)
+	}
+
+	// Network config
+	if app.Network != nil {
+		cmds = append(cmds, networkConfigCommands(appName, app.Network)...)
+	}
+
+	// Nginx config
+	if app.Nginx != nil {
+		cmds = append(cmds, nginxConfigCommands(appName, app.Nginx)...)
+	}
+
+	// Proxy config
+	if app.Proxy != nil {
+		cmds = append(cmds, proxyConfigCommands(appName, app.Proxy)...)
+	}
+
 	return cmds, nil
 }
 
@@ -139,7 +189,6 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 		return linkUpdateCommands(s.App, dApp.Links, aApp.Links), nil
 
 	case "ports":
-		// Clear and reset ports
 		var cmds [][]string
 		cmds = append(cmds, []string{"ports:clear", s.App})
 		if len(dApp.Ports) > 0 {
@@ -162,9 +211,350 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 		}
 		return [][]string{{"letsencrypt:disable", s.App}}, nil
 
+	case "git":
+		if dApp.Git == nil {
+			return nil, nil
+		}
+		return gitConfigCommands(s.App, dApp.Git), nil
+
+	case "network":
+		if dApp.Network == nil {
+			return nil, nil
+		}
+		return networkConfigCommands(s.App, dApp.Network), nil
+
+	case "nginx":
+		if dApp.Nginx == nil {
+			return nil, nil
+		}
+		return nginxConfigCommands(s.App, dApp.Nginx), nil
+
+	case "proxy":
+		if dApp.Proxy == nil {
+			return nil, nil
+		}
+		return proxyConfigCommands(s.App, dApp.Proxy), nil
+
+	case "ssl":
+		return e.sslCommands(s.App, dApp.SSL, aApp.SSL)
+
+	case "healthchecks", "cron":
+		return e.appJsonCommands(s.App, dApp)
+
+	case "nginx_template":
+		return e.nginxTemplateCommands(s.App, dApp.NginxTemplate)
+
 	default:
 		return nil, fmt.Errorf("unknown field: %s", s.Field)
 	}
+}
+
+func gitConfigCommands(appName string, git *schema.GitConfig) [][]string {
+	var cmds [][]string
+	if git.Branch != "" {
+		cmds = append(cmds, []string{"git:set", appName, "deploy-branch", git.Branch})
+	}
+	if git.KeepGitDir {
+		cmds = append(cmds, []string{"git:set", appName, "keep-git-dir", "true"})
+	} else {
+		cmds = append(cmds, []string{"git:set", appName, "keep-git-dir", "false"})
+	}
+	if git.Repo != "" {
+		cmd := []string{"git:sync", "--build", appName, git.Repo}
+		if git.Branch != "" {
+			cmd = append(cmd, git.Branch)
+		}
+		cmds = append(cmds, cmd)
+	}
+	return cmds
+}
+
+func networkConfigCommands(appName string, net *schema.NetworkConfig) [][]string {
+	var cmds [][]string
+	props := []struct {
+		name  string
+		value string
+	}{
+		{"attach-post-create", net.AttachPostCreate},
+		{"attach-post-deploy", net.AttachPostDeploy},
+		{"bind-all-interfaces", strconv.FormatBool(net.BindAllInterfaces)},
+		{"initial-network", net.InitialNetwork},
+		{"static-web-listener", net.StaticWebListener},
+		{"tld", net.TLD},
+	}
+	for _, p := range props {
+		if p.value != "" && p.value != "false" {
+			cmds = append(cmds, []string{"network:set", appName, p.name, p.value})
+		}
+	}
+	return cmds
+}
+
+func nginxConfigCommands(appName string, nginx *schema.NginxConfig) [][]string {
+	var cmds [][]string
+	cmds = append(cmds, []string{"nginx:set", appName, "hsts", strconv.FormatBool(nginx.HSTS)})
+	cmds = append(cmds, []string{"nginx:set", appName, "hsts-include-subdomains", strconv.FormatBool(nginx.HSTSIncludeSubdomains)})
+	if nginx.HSTSMaxAge > 0 {
+		cmds = append(cmds, []string{"nginx:set", appName, "hsts-max-age", strconv.Itoa(nginx.HSTSMaxAge)})
+	}
+	cmds = append(cmds, []string{"nginx:set", appName, "hsts-preload", strconv.FormatBool(nginx.HSTSPreload)})
+	return cmds
+}
+
+func proxyConfigCommands(appName string, proxy *schema.ProxyConfig) [][]string {
+	var cmds [][]string
+	if proxy.Enabled {
+		cmds = append(cmds, []string{"proxy:enable", appName})
+	} else {
+		cmds = append(cmds, []string{"proxy:disable", appName})
+	}
+	if proxy.Type != "" {
+		cmds = append(cmds, []string{"proxy:set", appName, proxy.Type})
+	}
+	return cmds
+}
+
+func (e *Executor) sslCommands(appName string, desired, actual *schema.SSLConfig) ([][]string, error) {
+	if desired == nil || (desired.CertFile == "" && desired.KeyFile == "") {
+		// Remove SSL
+		return [][]string{{"certs:remove", appName}}, nil
+	}
+	// Adding certs requires RunWithStdin + tar, which is handled separately.
+	// For now, generate a placeholder command that the user can see.
+	return [][]string{{"certs:add", appName}}, nil
+}
+
+func (e *Executor) appJsonCommands(appName string, app schema.App) ([][]string, error) {
+	appJSON := buildAppJSON(app)
+	jsonBytes, err := json.Marshal(appJSON)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling app.json: %w", err)
+	}
+	return [][]string{{"app-json:set", appName, string(jsonBytes)}}, nil
+}
+
+func buildAppJSON(app schema.App) map[string]interface{} {
+	result := map[string]interface{}{}
+
+	if len(app.Healthchecks) > 0 {
+		result["healthchecks"] = app.Healthchecks
+	}
+
+	if len(app.Cron) > 0 {
+		cron := make([]map[string]string, len(app.Cron))
+		for i, c := range app.Cron {
+			cron[i] = map[string]string{
+				"command":  c.Command,
+				"schedule": c.Schedule,
+			}
+		}
+		result["cron"] = cron
+	}
+
+	return result
+}
+
+func (e *Executor) nginxTemplateCommands(appName, template string) ([][]string, error) {
+	if e.FileRunner != nil {
+		path := fmt.Sprintf("/home/dokku/%s/nginx.conf.sigil", appName)
+		if template == "" {
+			// Template removed — we'd delete the file, but just rebuild config
+		} else {
+			if err := e.FileRunner.WriteFile(path, []byte(template), 0644); err != nil {
+				return nil, fmt.Errorf("writing nginx template: %w", err)
+			}
+		}
+	}
+	return [][]string{{"nginx:build-config", appName}}, nil
+}
+
+// Mail service commands
+func (e *Executor) createMailServiceCommands(name string, desired *schema.Dokkufile) ([][]string, error) {
+	svc, ok := desired.MailServices[name]
+	if !ok {
+		return nil, fmt.Errorf("mail service %q not found in desired state", name)
+	}
+	var cmds [][]string
+	cmds = append(cmds, []string{"mail:create", name})
+	if svc.Provider != "" {
+		cmds = append(cmds, []string{"mail:provider:set", name, svc.Provider})
+	}
+	for _, k := range sortedKeys(svc.Config) {
+		cmds = append(cmds, []string{"mail:provider:config", name, fmt.Sprintf("%s=%s", k, svc.Config[k])})
+	}
+	if svc.Provider != "" {
+		cmds = append(cmds, []string{"mail:provider:apply", name})
+	}
+	return cmds, nil
+}
+
+func (e *Executor) updateMailServiceCommands(name string, desired *schema.Dokkufile) ([][]string, error) {
+	svc, ok := desired.MailServices[name]
+	if !ok {
+		return nil, fmt.Errorf("mail service %q not found in desired state", name)
+	}
+	var cmds [][]string
+	if svc.Provider != "" {
+		cmds = append(cmds, []string{"mail:provider:set", name, svc.Provider})
+	}
+	for _, k := range sortedKeys(svc.Config) {
+		cmds = append(cmds, []string{"mail:provider:config", name, fmt.Sprintf("%s=%s", k, svc.Config[k])})
+	}
+	if svc.Provider != "" {
+		cmds = append(cmds, []string{"mail:provider:apply", name})
+	}
+	return cmds, nil
+}
+
+// Auth directory commands
+func (e *Executor) createAuthDirectoryCommands(name string, desired *schema.Dokkufile) ([][]string, error) {
+	dir, ok := desired.AuthDirectories[name]
+	if !ok {
+		return nil, fmt.Errorf("auth directory %q not found in desired state", name)
+	}
+	var cmds [][]string
+	cmds = append(cmds, []string{"auth:create", name})
+	if dir.Provider != "" {
+		cmds = append(cmds, []string{"auth:provider:set", name, dir.Provider})
+	}
+	for _, k := range sortedKeys(dir.Config) {
+		cmds = append(cmds, []string{"auth:provider:config", name, fmt.Sprintf("%s=%s", k, dir.Config[k])})
+	}
+	if dir.Provider != "" {
+		cmds = append(cmds, []string{"auth:provider:apply", name})
+	}
+	return cmds, nil
+}
+
+func (e *Executor) updateAuthDirectoryCommands(name string, desired *schema.Dokkufile) ([][]string, error) {
+	dir, ok := desired.AuthDirectories[name]
+	if !ok {
+		return nil, fmt.Errorf("auth directory %q not found in desired state", name)
+	}
+	var cmds [][]string
+	if dir.Provider != "" {
+		cmds = append(cmds, []string{"auth:provider:set", name, dir.Provider})
+	}
+	for _, k := range sortedKeys(dir.Config) {
+		cmds = append(cmds, []string{"auth:provider:config", name, fmt.Sprintf("%s=%s", k, dir.Config[k])})
+	}
+	if dir.Provider != "" {
+		cmds = append(cmds, []string{"auth:provider:apply", name})
+	}
+	return cmds, nil
+}
+
+// Auth frontend commands
+func (e *Executor) createAuthFrontendCommands(name string, desired *schema.Dokkufile) ([][]string, error) {
+	fe, ok := desired.AuthFrontends[name]
+	if !ok {
+		return nil, fmt.Errorf("auth frontend %q not found in desired state", name)
+	}
+	var cmds [][]string
+	cmds = append(cmds, []string{"auth:frontend:create", name})
+	if fe.Provider != "" {
+		cmds = append(cmds, []string{"auth:frontend:provider:set", name, fe.Provider})
+	}
+	if fe.Directory != "" {
+		cmds = append(cmds, []string{"auth:frontend:use-directory", name, fe.Directory})
+	}
+	for _, k := range sortedKeys(fe.Config) {
+		cmds = append(cmds, []string{"auth:frontend:config", name, fmt.Sprintf("%s=%s", k, fe.Config[k])})
+	}
+	if fe.Provider != "" {
+		cmds = append(cmds, []string{"auth:frontend:apply", name})
+	}
+	for _, app := range fe.ProtectedApps {
+		cmds = append(cmds, []string{"auth:frontend:protect", name, app})
+	}
+	if fe.OIDCEnabled {
+		cmds = append(cmds, []string{"auth:oidc:enable", name})
+		for _, client := range fe.OIDCClients {
+			cmd := []string{"auth:oidc:add-client", name, client.ID}
+			if client.Secret != "" {
+				cmd = append(cmd, client.Secret)
+			}
+			if client.RedirectURI != "" {
+				cmd = append(cmd, client.RedirectURI)
+			}
+			cmds = append(cmds, cmd)
+		}
+	}
+	return cmds, nil
+}
+
+func (e *Executor) updateAuthFrontendCommands(name string, desired, actual *schema.Dokkufile) ([][]string, error) {
+	fe, ok := desired.AuthFrontends[name]
+	if !ok {
+		return nil, fmt.Errorf("auth frontend %q not found in desired state", name)
+	}
+	var cmds [][]string
+
+	if fe.Provider != "" {
+		cmds = append(cmds, []string{"auth:frontend:provider:set", name, fe.Provider})
+	}
+	if fe.Directory != "" {
+		cmds = append(cmds, []string{"auth:frontend:use-directory", name, fe.Directory})
+	}
+	for _, k := range sortedKeys(fe.Config) {
+		cmds = append(cmds, []string{"auth:frontend:config", name, fmt.Sprintf("%s=%s", k, fe.Config[k])})
+	}
+	if fe.Provider != "" {
+		cmds = append(cmds, []string{"auth:frontend:apply", name})
+	}
+
+	// Unprotect removed apps, protect new apps
+	actualFE := actual.AuthFrontends[name]
+	actualProtected := toSet(actualFE.ProtectedApps)
+	desiredProtected := toSet(fe.ProtectedApps)
+	for _, app := range actualFE.ProtectedApps {
+		if !desiredProtected[app] {
+			cmds = append(cmds, []string{"auth:frontend:unprotect", name, app})
+		}
+	}
+	for _, app := range fe.ProtectedApps {
+		if !actualProtected[app] {
+			cmds = append(cmds, []string{"auth:frontend:protect", name, app})
+		}
+	}
+
+	// OIDC
+	if fe.OIDCEnabled && !actualFE.OIDCEnabled {
+		cmds = append(cmds, []string{"auth:oidc:enable", name})
+	} else if !fe.OIDCEnabled && actualFE.OIDCEnabled {
+		cmds = append(cmds, []string{"auth:oidc:disable", name})
+	}
+
+	if fe.OIDCEnabled {
+		// Remove old clients not in desired
+		actualClients := map[string]bool{}
+		for _, c := range actualFE.OIDCClients {
+			actualClients[c.ID] = true
+		}
+		desiredClients := map[string]bool{}
+		for _, c := range fe.OIDCClients {
+			desiredClients[c.ID] = true
+		}
+		for _, c := range actualFE.OIDCClients {
+			if !desiredClients[c.ID] {
+				cmds = append(cmds, []string{"auth:oidc:remove-client", name, c.ID})
+			}
+		}
+		for _, c := range fe.OIDCClients {
+			if !actualClients[c.ID] {
+				cmd := []string{"auth:oidc:add-client", name, c.ID}
+				if c.Secret != "" {
+					cmd = append(cmd, c.Secret)
+				}
+				if c.RedirectURI != "" {
+					cmd = append(cmd, c.RedirectURI)
+				}
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+
+	return cmds, nil
 }
 
 // configSetArgs builds: config:set --no-restart <app> KEY1=VALUE1 KEY2=VALUE2 ...
@@ -181,14 +571,14 @@ func envUpdateCommands(appName string, desired, actual map[string]string) [][]st
 	var cmds [][]string
 
 	// Find vars to set (new or changed)
-	toSet := map[string]string{}
+	toSetMap := map[string]string{}
 	for k, v := range desired {
 		if actual[k] != v {
-			toSet[k] = v
+			toSetMap[k] = v
 		}
 	}
-	if len(toSet) > 0 {
-		cmds = append(cmds, configSetArgs(appName, toSet))
+	if len(toSetMap) > 0 {
+		cmds = append(cmds, configSetArgs(appName, toSetMap))
 	}
 
 	// Find vars to unset (removed)
@@ -256,9 +646,9 @@ func dockerOptionsUpdateCommands(appName string, desired, actual schema.DockerOp
 	var cmds [][]string
 
 	phases := []struct {
-		name          string
-		desiredOpts   []string
-		actualOpts    []string
+		name        string
+		desiredOpts []string
+		actualOpts  []string
 	}{
 		{"build", desired.Build, actual.Build},
 		{"deploy", desired.Deploy, actual.Deploy},
@@ -330,6 +720,24 @@ func describeStep(s plan.Step) string {
 		return fmt.Sprintf("create %s service %q", s.ServiceType, s.Service)
 	case plan.DestroyService:
 		return fmt.Sprintf("destroy %s service %q", s.ServiceType, s.Service)
+	case plan.CreateMailService:
+		return fmt.Sprintf("create mail service %q", s.Service)
+	case plan.DestroyMailService:
+		return fmt.Sprintf("destroy mail service %q", s.Service)
+	case plan.UpdateMailService:
+		return fmt.Sprintf("update mail service %q", s.Service)
+	case plan.CreateAuthDirectory:
+		return fmt.Sprintf("create auth directory %q", s.Service)
+	case plan.DestroyAuthDirectory:
+		return fmt.Sprintf("destroy auth directory %q", s.Service)
+	case plan.UpdateAuthDirectory:
+		return fmt.Sprintf("update auth directory %q", s.Service)
+	case plan.CreateAuthFrontend:
+		return fmt.Sprintf("create auth frontend %q", s.Service)
+	case plan.DestroyAuthFrontend:
+		return fmt.Sprintf("destroy auth frontend %q", s.Service)
+	case plan.UpdateAuthFrontend:
+		return fmt.Sprintf("update auth frontend %q", s.Service)
 	default:
 		return fmt.Sprintf("unknown action: %s", s.Action)
 	}

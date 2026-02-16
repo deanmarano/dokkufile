@@ -1,6 +1,9 @@
 package state
 
 import (
+	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -12,6 +15,18 @@ type CommandRunner interface {
 	Run(args ...string) (string, error)
 }
 
+// StdinRunner extends CommandRunner with stdin support.
+type StdinRunner interface {
+	CommandRunner
+	RunWithStdin(stdin io.Reader, args ...string) (string, error)
+}
+
+// FileRunner abstracts file I/O for reading/writing files on the server.
+type FileRunner interface {
+	ReadFile(path string) (string, error)
+	WriteFile(path string, content []byte, perm os.FileMode) error
+}
+
 // ExecRunner shells out to the real dokku binary.
 type ExecRunner struct{}
 
@@ -19,6 +34,25 @@ func (r *ExecRunner) Run(args ...string) (string, error) {
 	cmd := exec.Command("dokku", args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+func (r *ExecRunner) RunWithStdin(stdin io.Reader, args ...string) (string, error) {
+	cmd := exec.Command("dokku", args...)
+	cmd.Stdin = stdin
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// ExecFileRunner implements FileRunner using the local filesystem.
+type ExecFileRunner struct{}
+
+func (r *ExecFileRunner) ReadFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	return string(data), err
+}
+
+func (r *ExecFileRunner) WriteFile(path string, content []byte, perm os.FileMode) error {
+	return os.WriteFile(path, content, perm)
 }
 
 // Reader reads live state from a dokku server.
@@ -72,6 +106,22 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			app.Image = strings.TrimSpace(out)
 		}
 
+		// Git config
+		if out, err := r.Runner.Run("git:report", appName); err == nil {
+			branch := parseReportField(out, "Git deploy branch")
+			keepGitDir := parseReportField(out, "Git keep git dir")
+			if branch != "" || keepGitDir == "true" {
+				git := &schema.GitConfig{}
+				if branch != "" {
+					git.Branch = branch
+				}
+				if keepGitDir == "true" {
+					git.KeepGitDir = true
+				}
+				app.Git = git
+			}
+		}
+
 		// Domains
 		if out, err := r.Runner.Run("domains:report", appName, "--domains-app-vhosts"); err == nil {
 			trimmed := strings.TrimSpace(out)
@@ -123,6 +173,56 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			scale := parseScaleOutput(out)
 			if len(scale) > 0 {
 				app.Scale = scale
+			}
+		}
+
+		// Network config
+		if out, err := r.Runner.Run("network:report", appName); err == nil {
+			net := &schema.NetworkConfig{
+				AttachPostCreate:  parseReportField(out, "Network attach post create"),
+				AttachPostDeploy:  parseReportField(out, "Network attach post deploy"),
+				BindAllInterfaces: parseReportField(out, "Network bind all interfaces") == "true",
+				InitialNetwork:    parseReportField(out, "Network initial network"),
+				StaticWebListener: parseReportField(out, "Network static web listener"),
+				TLD:               parseReportField(out, "Network tld"),
+			}
+			if net.AttachPostCreate != "" || net.AttachPostDeploy != "" || net.BindAllInterfaces ||
+				net.InitialNetwork != "" || net.StaticWebListener != "" || net.TLD != "" {
+				app.Network = net
+			}
+		}
+
+		// Nginx config
+		if out, err := r.Runner.Run("nginx:report", appName); err == nil {
+			nginx := &schema.NginxConfig{
+				HSTS:                  parseReportField(out, "Nginx hsts") == "true",
+				HSTSIncludeSubdomains: parseReportField(out, "Nginx hsts include subdomains") == "true",
+				HSTSPreload:           parseReportField(out, "Nginx hsts preload") == "true",
+			}
+			if maxAge := parseReportField(out, "Nginx hsts max age"); maxAge != "" {
+				fmt.Sscanf(maxAge, "%d", &nginx.HSTSMaxAge)
+			}
+			if nginx.HSTS || nginx.HSTSIncludeSubdomains || nginx.HSTSMaxAge > 0 || nginx.HSTSPreload {
+				app.Nginx = nginx
+			}
+		}
+
+		// Proxy config
+		if out, err := r.Runner.Run("proxy:report", appName); err == nil {
+			proxy := &schema.ProxyConfig{
+				Enabled: parseReportField(out, "Proxy enabled") == "true",
+				Type:    parseReportField(out, "Proxy type"),
+			}
+			if proxy.Enabled || proxy.Type != "" {
+				app.Proxy = proxy
+			}
+		}
+
+		// SSL certs
+		if out, err := r.Runner.Run("certs:report", appName); err == nil {
+			sslPresent := parseReportField(out, "Ssl cert present")
+			if sslPresent == "true" {
+				app.SSL = &schema.SSLConfig{}
 			}
 		}
 

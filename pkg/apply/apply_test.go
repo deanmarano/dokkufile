@@ -520,6 +520,462 @@ func TestExecuteStopsOnError(t *testing.T) {
 	}
 }
 
+func TestUpdateGitConfig(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "git"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Git: &schema.GitConfig{
+				Repo:       "https://github.com/example/repo.git",
+				Branch:     "main",
+				KeepGitDir: true,
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("git:set", "myapp", "deploy-branch", "main") {
+		t.Errorf("expected git:set deploy-branch, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("git:set", "myapp", "keep-git-dir", "true") {
+		t.Errorf("expected git:set keep-git-dir, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("git:sync", "--build", "myapp", "https://github.com/example/repo.git", "main") {
+		t.Errorf("expected git:sync, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateNetworkConfig(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "network"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Network: &schema.NetworkConfig{
+				AttachPostCreate:  "mynet",
+				BindAllInterfaces: true,
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("network:set", "myapp", "attach-post-create", "mynet") {
+		t.Errorf("expected network:set attach-post-create, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("network:set", "myapp", "bind-all-interfaces", "true") {
+		t.Errorf("expected network:set bind-all-interfaces, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateNginxConfig(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "nginx"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Nginx: &schema.NginxConfig{HSTS: true, HSTSMaxAge: 31536000},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("nginx:set", "myapp", "hsts", "true") {
+		t.Errorf("expected nginx:set hsts, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("nginx:set", "myapp", "hsts-max-age", "31536000") {
+		t.Errorf("expected nginx:set hsts-max-age, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateProxyConfig(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "proxy"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Proxy: &schema.ProxyConfig{Enabled: true, Type: "nginx"},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("proxy:enable", "myapp") {
+		t.Errorf("expected proxy:enable, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("proxy:set", "myapp", "nginx") {
+		t.Errorf("expected proxy:set, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateSSLRemove(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "ssl"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			SSL: &schema.SSLConfig{},
+		}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("certs:remove", "myapp") {
+		t.Errorf("expected certs:remove, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateHealthchecks(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "healthchecks"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			Healthchecks: map[string][]schema.HealthcheckConfig{
+				"web": {{Path: "/health", Timeout: 10}},
+			},
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	// Should generate an app-json:set command
+	found := false
+	for _, cmd := range runner.Commands {
+		if len(cmd) >= 2 && cmd[0] == "app-json:set" && cmd[1] == "myapp" {
+			found = true
+			// The third arg should be valid JSON containing healthchecks
+			if len(cmd) >= 3 && !strings.Contains(cmd[2], "healthchecks") {
+				t.Errorf("app-json:set should contain healthchecks, got: %s", cmd[2])
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected app-json:set command, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateNginxTemplate(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "nginx_template"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {
+			NginxTemplate: "server { listen 80; }",
+		}},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("nginx:build-config", "myapp") {
+		t.Errorf("expected nginx:build-config, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateMailService(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateMailService, Service: "mymail"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		MailServices: map[string]schema.MailService{
+			"mymail": {
+				Provider: "smtp",
+				Config:   map[string]string{"host": "smtp.example.com"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("mail:create", "mymail") {
+		t.Errorf("expected mail:create, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("mail:provider:set", "mymail", "smtp") {
+		t.Errorf("expected mail:provider:set, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("mail:provider:config", "mymail", "host=smtp.example.com") {
+		t.Errorf("expected mail:provider:config, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("mail:provider:apply", "mymail") {
+		t.Errorf("expected mail:provider:apply, got: %v", runner.commandStrings())
+	}
+}
+
+func TestDestroyMailService(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.DestroyMailService, Service: "mymail"},
+		},
+	}
+	desired := &schema.Dokkufile{Version: "1"}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("mail:destroy", "mymail", "--force") {
+		t.Errorf("expected mail:destroy, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateAuthDirectory(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateAuthDirectory, Service: "mydir"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		AuthDirectories: map[string]schema.AuthDirectory{
+			"mydir": {
+				Provider: "ldap",
+				Config:   map[string]string{"url": "ldap://example.com"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("auth:create", "mydir") {
+		t.Errorf("expected auth:create, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:provider:set", "mydir", "ldap") {
+		t.Errorf("expected auth:provider:set, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:provider:config", "mydir", "url=ldap://example.com") {
+		t.Errorf("expected auth:provider:config, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:provider:apply", "mydir") {
+		t.Errorf("expected auth:provider:apply, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateAuthFrontend(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateAuthFrontend, Service: "myfe"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		AuthFrontends: map[string]schema.AuthFrontend{
+			"myfe": {
+				Provider:      "oauth2",
+				Directory:     "mydir",
+				ProtectedApps: []string{"webapp"},
+				OIDCEnabled:   true,
+				OIDCClients: []schema.OIDCClient{
+					{ID: "client1", Secret: "secret1", RedirectURI: "https://example.com/callback"},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("auth:frontend:create", "myfe") {
+		t.Errorf("expected auth:frontend:create, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:frontend:provider:set", "myfe", "oauth2") {
+		t.Errorf("expected auth:frontend:provider:set, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:frontend:use-directory", "myfe", "mydir") {
+		t.Errorf("expected auth:frontend:use-directory, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:frontend:protect", "myfe", "webapp") {
+		t.Errorf("expected auth:frontend:protect, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:oidc:enable", "myfe") {
+		t.Errorf("expected auth:oidc:enable, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:oidc:add-client", "myfe", "client1", "secret1", "https://example.com/callback") {
+		t.Errorf("expected auth:oidc:add-client, got: %v", runner.commandStrings())
+	}
+}
+
+func TestDestroyAuthFrontend(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.DestroyAuthFrontend, Service: "myfe"},
+		},
+	}
+	desired := &schema.Dokkufile{Version: "1"}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("auth:frontend:destroy", "myfe", "--force") {
+		t.Errorf("expected auth:frontend:destroy, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateAppWithGitConfig(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateApp, App: "myapp"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Git: &schema.GitConfig{
+					Repo:   "https://github.com/example/repo.git",
+					Branch: "main",
+				},
+				Domains: []string{"example.com"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("apps:create", "myapp") {
+		t.Errorf("expected apps:create, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("git:set", "myapp", "deploy-branch", "main") {
+		t.Errorf("expected git:set deploy-branch, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("git:sync", "--build", "myapp", "https://github.com/example/repo.git", "main") {
+		t.Errorf("expected git:sync, got: %v", runner.commandStrings())
+	}
+}
+
 // FailingRunner fails on a specific command prefix.
 type FailingRunner struct {
 	failOn string

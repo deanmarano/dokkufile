@@ -362,3 +362,354 @@ func TestDetectLetsEncryptChange(t *testing.T) {
 		t.Error("did not find letsencrypt update step")
 	}
 }
+
+func TestDetectGitChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Git:   &schema.GitConfig{Branch: "main", Repo: "https://github.com/example/repo.git"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "git" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find git update step")
+	}
+}
+
+func TestDetectNetworkChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Network: &schema.NetworkConfig{InitialNetwork: "mynet"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "network" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find network update step")
+	}
+}
+
+func TestDetectNginxChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Nginx: &schema.NginxConfig{HSTS: true, HSTSMaxAge: 31536000},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "nginx" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find nginx update step")
+	}
+}
+
+func TestDetectProxyChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Proxy: &schema.ProxyConfig{Enabled: true, Type: "nginx"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "proxy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find proxy update step")
+	}
+}
+
+func TestDetectSSLChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				SSL:   &schema.SSLConfig{CertFile: "/path/to/cert", KeyFile: "/path/to/key"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "ssl" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find ssl update step")
+	}
+}
+
+func TestDetectHealthcheckChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Healthchecks: map[string][]schema.HealthcheckConfig{
+					"web": {{Path: "/health", Timeout: 10}},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "healthchecks" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find healthchecks update step")
+	}
+}
+
+func TestDetectCronChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Cron:  []schema.CronJob{{Command: "rake db:backup", Schedule: "@daily"}},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "cron" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find cron update step")
+	}
+}
+
+func TestDetectNginxTemplateChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:         "nginx:latest",
+				NginxTemplate: "server { listen 80; }",
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx:latest"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "nginx_template" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find nginx_template update step")
+	}
+}
+
+func TestDetectMailServiceCreate(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		MailServices: map[string]schema.MailService{
+			"mymail": {Provider: "smtp", Config: map[string]string{"host": "smtp.example.com"}},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.Service == "mymail" && s.Action == CreateMailService {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find create mail service step")
+	}
+}
+
+func TestDetectMailServiceDestroy(t *testing.T) {
+	desired := &schema.Dokkufile{Version: "1"}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		MailServices: map[string]schema.MailService{
+			"mymail": {Provider: "smtp"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.Service == "mymail" && s.Action == DestroyMailService {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find destroy mail service step")
+	}
+}
+
+func TestDetectAuthDirectoryCreate(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		AuthDirectories: map[string]schema.AuthDirectory{
+			"mydir": {Provider: "ldap"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.Service == "mydir" && s.Action == CreateAuthDirectory {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find create auth directory step")
+	}
+}
+
+func TestDetectAuthFrontendCreate(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		AuthFrontends: map[string]schema.AuthFrontend{
+			"myfe": {Provider: "oauth2", Directory: "mydir"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.Service == "myfe" && s.Action == CreateAuthFrontend {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find create auth frontend step")
+	}
+}
+
+func TestNoChangesNewFields(t *testing.T) {
+	state := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Git:     &schema.GitConfig{Branch: "main"},
+				Network: &schema.NetworkConfig{InitialNetwork: "mynet"},
+				Nginx:   &schema.NginxConfig{HSTS: true},
+				Proxy:   &schema.ProxyConfig{Enabled: true, Type: "nginx"},
+			},
+		},
+	}
+
+	p := Diff(state, state)
+
+	if len(p.Steps) != 0 {
+		t.Errorf("expected no steps, got %d: %v", len(p.Steps), p.String())
+	}
+}

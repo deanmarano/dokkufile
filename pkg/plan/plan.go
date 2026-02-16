@@ -12,11 +12,20 @@ import (
 type Action string
 
 const (
-	CreateApp      Action = "create_app"
-	DestroyApp     Action = "destroy_app"
-	UpdateApp      Action = "update_app"
-	CreateService  Action = "create_service"
-	DestroyService Action = "destroy_service"
+	CreateApp           Action = "create_app"
+	DestroyApp          Action = "destroy_app"
+	UpdateApp           Action = "update_app"
+	CreateService       Action = "create_service"
+	DestroyService      Action = "destroy_service"
+	CreateMailService   Action = "create_mail_service"
+	DestroyMailService  Action = "destroy_mail_service"
+	UpdateMailService   Action = "update_mail_service"
+	CreateAuthDirectory Action = "create_auth_directory"
+	DestroyAuthDirectory Action = "destroy_auth_directory"
+	UpdateAuthDirectory Action = "update_auth_directory"
+	CreateAuthFrontend  Action = "create_auth_frontend"
+	DestroyAuthFrontend Action = "destroy_auth_frontend"
+	UpdateAuthFrontend  Action = "update_auth_frontend"
 )
 
 // Step is a single planned change.
@@ -53,6 +62,24 @@ func (p *Plan) String() string {
 			fmt.Fprintf(&b, "+ service %q\n", s.Service)
 		case DestroyService:
 			fmt.Fprintf(&b, "- service %q\n", s.Service)
+		case CreateMailService:
+			fmt.Fprintf(&b, "+ mail service %q\n", s.Service)
+		case DestroyMailService:
+			fmt.Fprintf(&b, "- mail service %q\n", s.Service)
+		case UpdateMailService:
+			fmt.Fprintf(&b, "~ mail service %q\n", s.Service)
+		case CreateAuthDirectory:
+			fmt.Fprintf(&b, "+ auth directory %q\n", s.Service)
+		case DestroyAuthDirectory:
+			fmt.Fprintf(&b, "- auth directory %q\n", s.Service)
+		case UpdateAuthDirectory:
+			fmt.Fprintf(&b, "~ auth directory %q\n", s.Service)
+		case CreateAuthFrontend:
+			fmt.Fprintf(&b, "+ auth frontend %q\n", s.Service)
+		case DestroyAuthFrontend:
+			fmt.Fprintf(&b, "- auth frontend %q\n", s.Service)
+		case UpdateAuthFrontend:
+			fmt.Fprintf(&b, "~ auth frontend %q\n", s.Service)
 		}
 	}
 	return b.String()
@@ -63,6 +90,9 @@ func Diff(desired, actual *schema.Dokkufile) *Plan {
 	var steps []Step
 
 	steps = append(steps, diffServices(desired, actual)...)
+	steps = append(steps, diffMailServices(desired, actual)...)
+	steps = append(steps, diffAuthDirectories(desired, actual)...)
+	steps = append(steps, diffAuthFrontends(desired, actual)...)
 	steps = append(steps, diffApps(desired, actual)...)
 
 	return &Plan{Steps: steps}
@@ -101,6 +131,105 @@ func diffServices(desired, actual *schema.Dokkufile) []Step {
 	}
 
 	return steps
+}
+
+func diffMailServices(desired, actual *schema.Dokkufile) []Step {
+	var steps []Step
+	desiredMail := desired.MailServices
+	actualMail := actual.MailServices
+	if desiredMail == nil {
+		desiredMail = map[string]schema.MailService{}
+	}
+	if actualMail == nil {
+		actualMail = map[string]schema.MailService{}
+	}
+
+	for name, d := range desiredMail {
+		if a, exists := actualMail[name]; !exists {
+			steps = append(steps, Step{Action: CreateMailService, Service: name})
+		} else if d.Provider != a.Provider || !mapEqual(d.Config, a.Config) {
+			steps = append(steps, Step{Action: UpdateMailService, Service: name})
+		}
+	}
+	for name := range actualMail {
+		if _, exists := desiredMail[name]; !exists {
+			steps = append(steps, Step{Action: DestroyMailService, Service: name})
+		}
+	}
+	return steps
+}
+
+func diffAuthDirectories(desired, actual *schema.Dokkufile) []Step {
+	var steps []Step
+	desiredDir := desired.AuthDirectories
+	actualDir := actual.AuthDirectories
+	if desiredDir == nil {
+		desiredDir = map[string]schema.AuthDirectory{}
+	}
+	if actualDir == nil {
+		actualDir = map[string]schema.AuthDirectory{}
+	}
+
+	for name, d := range desiredDir {
+		if a, exists := actualDir[name]; !exists {
+			steps = append(steps, Step{Action: CreateAuthDirectory, Service: name})
+		} else if d.Provider != a.Provider || !mapEqual(d.Config, a.Config) {
+			steps = append(steps, Step{Action: UpdateAuthDirectory, Service: name})
+		}
+	}
+	for name := range actualDir {
+		if _, exists := desiredDir[name]; !exists {
+			steps = append(steps, Step{Action: DestroyAuthDirectory, Service: name})
+		}
+	}
+	return steps
+}
+
+func diffAuthFrontends(desired, actual *schema.Dokkufile) []Step {
+	var steps []Step
+	desiredFE := desired.AuthFrontends
+	actualFE := actual.AuthFrontends
+	if desiredFE == nil {
+		desiredFE = map[string]schema.AuthFrontend{}
+	}
+	if actualFE == nil {
+		actualFE = map[string]schema.AuthFrontend{}
+	}
+
+	for name, d := range desiredFE {
+		if a, exists := actualFE[name]; !exists {
+			steps = append(steps, Step{Action: CreateAuthFrontend, Service: name})
+		} else if !authFrontendEqual(d, a) {
+			steps = append(steps, Step{Action: UpdateAuthFrontend, Service: name})
+		}
+	}
+	for name := range actualFE {
+		if _, exists := desiredFE[name]; !exists {
+			steps = append(steps, Step{Action: DestroyAuthFrontend, Service: name})
+		}
+	}
+	return steps
+}
+
+func authFrontendEqual(a, b schema.AuthFrontend) bool {
+	if a.Provider != b.Provider || a.Directory != b.Directory || a.OIDCEnabled != b.OIDCEnabled {
+		return false
+	}
+	if !mapEqual(a.Config, b.Config) {
+		return false
+	}
+	if !sliceEqual(a.ProtectedApps, b.ProtectedApps) {
+		return false
+	}
+	if len(a.OIDCClients) != len(b.OIDCClients) {
+		return false
+	}
+	for i := range a.OIDCClients {
+		if a.OIDCClients[i] != b.OIDCClients[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func diffApps(desired, actual *schema.Dokkufile) []Step {
@@ -224,6 +353,80 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
+	// Git config
+	if !gitConfigEqual(desired.Git, actual.Git) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "git",
+		})
+	}
+
+	// Network config
+	if !networkConfigEqual(desired.Network, actual.Network) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "network",
+		})
+	}
+
+	// Nginx config
+	if !nginxConfigEqual(desired.Nginx, actual.Nginx) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "nginx",
+		})
+	}
+
+	// Proxy config
+	if !proxyConfigEqual(desired.Proxy, actual.Proxy) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "proxy",
+		})
+	}
+
+	// SSL config
+	if !sslConfigEqual(desired.SSL, actual.SSL) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "ssl",
+		})
+	}
+
+	// Healthchecks
+	if !healthchecksEqual(desired.Healthchecks, actual.Healthchecks) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "healthchecks",
+		})
+	}
+
+	// Cron
+	if !cronEqual(desired.Cron, actual.Cron) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "cron",
+		})
+	}
+
+	// Nginx template
+	if desired.NginxTemplate != actual.NginxTemplate {
+		steps = append(steps, Step{
+			Action:   UpdateApp,
+			App:      name,
+			Field:    "nginx_template",
+			OldValue: actual.NginxTemplate,
+			NewValue: desired.NginxTemplate,
+		})
+	}
+
 	return steps
 }
 
@@ -252,6 +455,86 @@ func mapEqual(a, b map[string]string) bool {
 	}
 	for k, v := range a {
 		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+func gitConfigEqual(a, b *schema.GitConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Branch == b.Branch && a.KeepGitDir == b.KeepGitDir && a.Repo == b.Repo
+}
+
+func networkConfigEqual(a, b *schema.NetworkConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func nginxConfigEqual(a, b *schema.NginxConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func proxyConfigEqual(a, b *schema.ProxyConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func sslConfigEqual(a, b *schema.SSLConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.CertFile == b.CertFile && a.KeyFile == b.KeyFile
+}
+
+func healthchecksEqual(a, b map[string][]schema.HealthcheckConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if av[i] != bv[i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func cronEqual(a, b []schema.CronJob) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}

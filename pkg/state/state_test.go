@@ -430,6 +430,171 @@ func TestDokkuReaderUnlinkedService(t *testing.T) {
 	}
 }
 
+func TestDokkuReaderGitConfig(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"git:report", "web"}): {
+				Output: "=====> web\n       Git deploy branch:     main\n       Git keep git dir:      true\n",
+			},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}):    {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):                 {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+	if app.Git == nil {
+		t.Fatal("expected Git config to be set")
+	}
+	if app.Git.Branch != "main" {
+		t.Errorf("Git.Branch = %q, want %q", app.Git.Branch, "main")
+	}
+	if !app.Git.KeepGitDir {
+		t.Error("Git.KeepGitDir should be true")
+	}
+}
+
+func TestDokkuReaderNetworkConfig(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"network:report", "web"}): {
+				Output: "=====> web\n       Network attach post create:  mynet\n       Network attach post deploy:  \n       Network bind all interfaces:  true\n       Network initial network:     \n       Network static web listener:  \n       Network tld:                  \n",
+			},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}): {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):             {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):              {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+	if app.Network == nil {
+		t.Fatal("expected Network config to be set")
+	}
+	if app.Network.AttachPostCreate != "mynet" {
+		t.Errorf("Network.AttachPostCreate = %q, want %q", app.Network.AttachPostCreate, "mynet")
+	}
+	if !app.Network.BindAllInterfaces {
+		t.Error("Network.BindAllInterfaces should be true")
+	}
+}
+
+func TestDokkuReaderNginxProxyConfig(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"nginx:report", "web"}): {
+				Output: "=====> web\n       Nginx hsts:                    true\n       Nginx hsts include subdomains:  true\n       Nginx hsts max age:             31536000\n       Nginx hsts preload:             false\n",
+			},
+			fmt.Sprintf("%v", []string{"proxy:report", "web"}): {
+				Output: "=====> web\n       Proxy enabled:  true\n       Proxy type:     nginx\n",
+			},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}): {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):             {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):              {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+	if app.Nginx == nil {
+		t.Fatal("expected Nginx config to be set")
+	}
+	if !app.Nginx.HSTS {
+		t.Error("Nginx.HSTS should be true")
+	}
+	if !app.Nginx.HSTSIncludeSubdomains {
+		t.Error("Nginx.HSTSIncludeSubdomains should be true")
+	}
+	if app.Nginx.HSTSMaxAge != 31536000 {
+		t.Errorf("Nginx.HSTSMaxAge = %d, want 31536000", app.Nginx.HSTSMaxAge)
+	}
+	if app.Proxy == nil {
+		t.Fatal("expected Proxy config to be set")
+	}
+	if !app.Proxy.Enabled {
+		t.Error("Proxy.Enabled should be true")
+	}
+	if app.Proxy.Type != "nginx" {
+		t.Errorf("Proxy.Type = %q, want %q", app.Proxy.Type, "nginx")
+	}
+}
+
+func TestDokkuReaderSSLPresent(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"certs:report", "web"}): {
+				Output: "=====> web\n       Ssl cert present:  true\n",
+			},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}): {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):             {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):              {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+	if app.SSL == nil {
+		t.Fatal("expected SSL config to be set when cert is present")
+	}
+}
+
 // Verify that the Reader interface is satisfied.
 var _ Reader = (*DokkuReader)(nil)
 // Verify the unused import is used
