@@ -21,12 +21,13 @@ const (
 
 // Step is a single planned change.
 type Step struct {
-	Action   Action `json:"action"`
-	App      string `json:"app,omitempty"`
-	Service  string `json:"service,omitempty"`
-	Field    string `json:"field,omitempty"`
-	OldValue string `json:"old_value,omitempty"`
-	NewValue string `json:"new_value,omitempty"`
+	Action      Action `json:"action"`
+	App         string `json:"app,omitempty"`
+	Service     string `json:"service,omitempty"`
+	ServiceType string `json:"service_type,omitempty"`
+	Field       string `json:"field,omitempty"`
+	OldValue    string `json:"old_value,omitempty"`
+	NewValue    string `json:"new_value,omitempty"`
 }
 
 // Plan holds the list of steps needed to converge actual state to desired state.
@@ -79,20 +80,22 @@ func diffServices(desired, actual *schema.Dokkufile) []Step {
 		actualSvc = map[string]schema.Service{}
 	}
 
-	for name := range desiredSvc {
+	for name, svc := range desiredSvc {
 		if _, exists := actualSvc[name]; !exists {
 			steps = append(steps, Step{
-				Action:  CreateService,
-				Service: name,
+				Action:      CreateService,
+				Service:     name,
+				ServiceType: svc.Type,
 			})
 		}
 	}
 
-	for name := range actualSvc {
+	for name, svc := range actualSvc {
 		if _, exists := desiredSvc[name]; !exists {
 			steps = append(steps, Step{
-				Action:  DestroyService,
-				Service: name,
+				Action:      DestroyService,
+				Service:     name,
+				ServiceType: svc.Type,
 			})
 		}
 	}
@@ -200,6 +203,16 @@ func diffApp(name string, desired, actual schema.App) []Step {
 			Action: UpdateApp,
 			App:    name,
 			Field:  "scale",
+		})
+	}
+
+	if !sliceEqual(desired.DockerOptions.Build, actual.DockerOptions.Build) ||
+		!sliceEqual(desired.DockerOptions.Deploy, actual.DockerOptions.Deploy) ||
+		!sliceEqual(desired.DockerOptions.Run, actual.DockerOptions.Run) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "docker_options",
 		})
 	}
 

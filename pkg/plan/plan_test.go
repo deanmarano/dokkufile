@@ -128,6 +128,9 @@ func TestDetectNewService(t *testing.T) {
 	for _, s := range p.Steps {
 		if s.Service == "mydb" && s.Action == CreateService {
 			found = true
+			if s.ServiceType != "postgres" {
+				t.Errorf("expected ServiceType %q, got %q", "postgres", s.ServiceType)
+			}
 		}
 	}
 	if !found {
@@ -152,6 +155,9 @@ func TestDetectRemovedService(t *testing.T) {
 	for _, s := range p.Steps {
 		if s.Service == "mydb" && s.Action == DestroyService {
 			found = true
+			if s.ServiceType != "postgres" {
+				t.Errorf("expected ServiceType %q, got %q", "postgres", s.ServiceType)
+			}
 		}
 	}
 	if !found {
@@ -254,5 +260,105 @@ func TestDetectLinkChange(t *testing.T) {
 	}
 	if !found {
 		t.Error("did not find link update step")
+	}
+}
+
+func TestDetectDockerOptionsChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				DockerOptions: schema.DockerOptions{
+					Deploy: []string{"--restart=always"},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "docker_options" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find docker_options update step")
+	}
+}
+
+func TestDetectScaleChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Scale: map[string]int{"web": 2},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx:latest",
+				Scale: map[string]int{"web": 1},
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "scale" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find scale update step")
+	}
+}
+
+func TestDetectLetsEncryptChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:       "nginx:latest",
+				LetsEncrypt: true,
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:       "nginx:latest",
+				LetsEncrypt: false,
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.App == "myapp" && s.Action == UpdateApp && s.Field == "letsencrypt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("did not find letsencrypt update step")
 	}
 }
