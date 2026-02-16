@@ -62,7 +62,8 @@ type Reader interface {
 
 // DokkuReader reads state by shelling out to dokku commands.
 type DokkuReader struct {
-	Runner CommandRunner
+	Runner     CommandRunner
+	FileRunner FileRunner
 }
 
 // serviceTypes lists the backing service plugins to scan.
@@ -89,6 +90,76 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			df.Services[name] = schema.Service{Type: svcType}
 		}
 		allServices[svcType] = names
+	}
+
+	// Read mail services.
+	if out, err := r.Runner.Run("mail:list"); err == nil {
+		mailNames := parseServiceList(out)
+		if len(mailNames) > 0 {
+			df.MailServices = map[string]schema.MailService{}
+		}
+		for _, name := range mailNames {
+			svc := schema.MailService{}
+			if info, err := r.Runner.Run("mail:info", name); err == nil {
+				svc.Provider = parseReportField(info, "Provider")
+				cfg := parseReportConfigFields(info)
+				if len(cfg) > 0 {
+					svc.Config = cfg
+				}
+			}
+			df.MailServices[name] = svc
+		}
+	}
+
+	// Read auth directories.
+	if out, err := r.Runner.Run("auth:list"); err == nil {
+		dirNames := parseServiceList(out)
+		if len(dirNames) > 0 {
+			df.AuthDirectories = map[string]schema.AuthDirectory{}
+		}
+		for _, name := range dirNames {
+			dir := schema.AuthDirectory{}
+			if info, err := r.Runner.Run("auth:info", name); err == nil {
+				dir.Provider = parseReportField(info, "Provider")
+				cfg := parseReportConfigFields(info)
+				if len(cfg) > 0 {
+					dir.Config = cfg
+				}
+			}
+			df.AuthDirectories[name] = dir
+		}
+	}
+
+	// Read auth frontends.
+	if out, err := r.Runner.Run("auth:frontend:list"); err == nil {
+		feNames := parseServiceList(out)
+		if len(feNames) > 0 {
+			df.AuthFrontends = map[string]schema.AuthFrontend{}
+		}
+		for _, name := range feNames {
+			fe := schema.AuthFrontend{}
+			if info, err := r.Runner.Run("auth:frontend:info", name); err == nil {
+				fe.Provider = parseReportField(info, "Provider")
+				fe.Directory = parseReportField(info, "Directory")
+				apps := parseReportField(info, "Protected apps")
+				if apps != "" {
+					fe.ProtectedApps = strings.Fields(apps)
+				}
+				cfg := parseReportConfigFields(info)
+				if len(cfg) > 0 {
+					fe.Config = cfg
+				}
+			}
+			// OIDC
+			if oidcOut, err := r.Runner.Run("auth:oidc:list", name); err == nil {
+				clients := parseOIDCClients(oidcOut)
+				if len(clients) > 0 {
+					fe.OIDCEnabled = true
+					fe.OIDCClients = clients
+				}
+			}
+			df.AuthFrontends[name] = fe
+		}
 	}
 
 	// Read apps.
@@ -223,6 +294,22 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			sslPresent := parseReportField(out, "Ssl cert present")
 			if sslPresent == "true" {
 				app.SSL = &schema.SSLConfig{}
+			}
+		}
+
+		// Nginx template (via FileRunner)
+		if r.FileRunner != nil {
+			sigilPath := fmt.Sprintf("/home/dokku/%s/nginx.conf.sigil", appName)
+			if content, err := r.FileRunner.ReadFile(sigilPath); err == nil && content != "" {
+				app.NginxTemplate = content
+			}
+		}
+
+		// App.json (healthchecks + cron)
+		if r.FileRunner != nil {
+			appJSONPath := fmt.Sprintf("/home/dokku/%s/app.json", appName)
+			if content, err := r.FileRunner.ReadFile(appJSONPath); err == nil && content != "" {
+				app.Healthchecks, app.Cron = parseAppJSON(content)
 			}
 		}
 

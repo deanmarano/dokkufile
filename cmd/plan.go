@@ -22,7 +22,10 @@ func NewPlanCmd() *cobra.Command {
 				return fmt.Errorf("loading dokkufile: %w", err)
 			}
 
-			reader := &state.DokkuReader{Runner: &state.ExecRunner{}}
+			reader := &state.DokkuReader{
+				Runner:     &state.ExecRunner{},
+				FileRunner: &state.ExecFileRunner{},
+			}
 			actual, err := reader.Read()
 			if err != nil {
 				return fmt.Errorf("reading live state: %w", err)

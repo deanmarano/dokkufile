@@ -23,7 +23,8 @@ func NewApplyCmd() *cobra.Command {
 			}
 
 			runner := &state.ExecRunner{}
-			reader := &state.DokkuReader{Runner: runner}
+			fileRunner := &state.ExecFileRunner{}
+			reader := &state.DokkuReader{Runner: runner, FileRunner: fileRunner}
 			actual, err := reader.Read()
 			if err != nil {
 				return fmt.Errorf("reading live state: %w", err)
@@ -38,7 +39,7 @@ func NewApplyCmd() *cobra.Command {
 			fmt.Print(p.String())
 			fmt.Println()
 
-			executor := &apply.Executor{Runner: runner}
+			executor := &apply.Executor{Runner: runner, FileRunner: fileRunner}
 			return executor.Execute(p, desired, actual)
 		},
 	}

@@ -16,7 +16,10 @@ func NewInspectCmd() *cobra.Command {
 		Use:   "inspect",
 		Short: "Dump live server state as a Dokkufile",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reader := &state.DokkuReader{Runner: &state.ExecRunner{}}
+			reader := &state.DokkuReader{
+				Runner:     &state.ExecRunner{},
+				FileRunner: &state.ExecFileRunner{},
+			}
 			actual, err := reader.Read()
 			if err != nil {
 				return fmt.Errorf("reading live state: %w", err)

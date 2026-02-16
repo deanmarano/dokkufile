@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/deanmarano/dokkufile/pkg/schema"
@@ -592,6 +593,301 @@ func TestDokkuReaderSSLPresent(t *testing.T) {
 	app := df.Apps["web"]
 	if app.SSL == nil {
 		t.Fatal("expected SSL config to be set when cert is present")
+	}
+}
+
+func TestParseAppJSON(t *testing.T) {
+	input := `{
+		"healthchecks": {
+			"web": [{"path": "/health", "timeout": 10}]
+		},
+		"cron": [
+			{"command": "rake db:backup", "schedule": "@daily"}
+		]
+	}`
+	hc, cron := parseAppJSON(input)
+	if len(hc) != 1 {
+		t.Fatalf("expected 1 healthcheck process type, got %d", len(hc))
+	}
+	if len(hc["web"]) != 1 || hc["web"][0].Path != "/health" || hc["web"][0].Timeout != 10 {
+		t.Errorf("healthcheck = %+v, unexpected", hc["web"])
+	}
+	if len(cron) != 1 || cron[0].Command != "rake db:backup" || cron[0].Schedule != "@daily" {
+		t.Errorf("cron = %+v, unexpected", cron)
+	}
+}
+
+func TestParseAppJSONEmpty(t *testing.T) {
+	hc, cron := parseAppJSON("{}")
+	if len(hc) != 0 {
+		t.Errorf("expected no healthchecks, got %d", len(hc))
+	}
+	if len(cron) != 0 {
+		t.Errorf("expected no cron, got %d", len(cron))
+	}
+}
+
+func TestParseAppJSONInvalid(t *testing.T) {
+	hc, cron := parseAppJSON("not json")
+	if hc != nil || cron != nil {
+		t.Error("expected nil for invalid JSON")
+	}
+}
+
+func TestParseReportConfigFields(t *testing.T) {
+	input := `=====> myservice
+       Provider:       smtp
+       Config host:    smtp.example.com
+       Config port:    587
+       Config user:
+`
+	got := parseReportConfigFields(input)
+	if got["host"] != "smtp.example.com" {
+		t.Errorf("Config host = %q, want smtp.example.com", got["host"])
+	}
+	if got["port"] != "587" {
+		t.Errorf("Config port = %q, want 587", got["port"])
+	}
+	// Empty value should be excluded
+	if _, ok := got["user"]; ok {
+		t.Error("empty config values should be excluded")
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 config fields, got %d", len(got))
+	}
+}
+
+func TestParseOIDCClients(t *testing.T) {
+	input := `ID          SECRET     REDIRECT_URI
+client1     secret1    https://example.com/callback
+client2     secret2    https://other.com/callback
+`
+	got := parseOIDCClients(input)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 OIDC clients, got %d", len(got))
+	}
+	if got[0].ID != "client1" || got[0].Secret != "secret1" || got[0].RedirectURI != "https://example.com/callback" {
+		t.Errorf("client 0 = %+v, unexpected", got[0])
+	}
+	if got[1].ID != "client2" {
+		t.Errorf("client 1 ID = %q, want client2", got[1].ID)
+	}
+}
+
+func TestParseOIDCClientsEmpty(t *testing.T) {
+	got := parseOIDCClients("ID  SECRET  REDIRECT_URI\n")
+	if len(got) != 0 {
+		t.Errorf("expected 0 clients, got %d", len(got))
+	}
+}
+
+// FakeFileRunner returns canned file contents for testing.
+type FakeFileRunner struct {
+	Files map[string]FakeResult
+}
+
+func (f *FakeFileRunner) ReadFile(path string) (string, error) {
+	if r, ok := f.Files[path]; ok {
+		return r.Output, r.Err
+	}
+	return "", fmt.Errorf("file not found: %s", path)
+}
+
+func (f *FakeFileRunner) WriteFile(path string, content []byte, perm os.FileMode) error {
+	return nil
+}
+
+func TestDokkuReaderNginxTemplate(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}): {Output: "nginx:latest\n"},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}):    {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):                 {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	fileRunner := &FakeFileRunner{
+		Files: map[string]FakeResult{
+			"/home/dokku/web/nginx.conf.sigil": {Output: "server { listen 80; }"},
+			"/home/dokku/web/app.json":         {Output: "", Err: fmt.Errorf("not found")},
+		},
+	}
+	reader := &DokkuReader{Runner: fake, FileRunner: fileRunner}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+	if app.NginxTemplate != "server { listen 80; }" {
+		t.Errorf("NginxTemplate = %q, want %q", app.NginxTemplate, "server { listen 80; }")
+	}
+}
+
+func TestDokkuReaderAppJSON(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nweb\n"},
+			fmt.Sprintf("%v", []string{"git:report", "web", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "web", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "web"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "web"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "web"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "web"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "web"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "web"}):    {Output: "", Err: fmt.Errorf("exit status 1")},
+			fmt.Sprintf("%v", []string{"postgres:list"}):                {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):                 {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):                   {Output: "", Err: fmt.Errorf("not installed")},
+		},
+	}
+	fileRunner := &FakeFileRunner{
+		Files: map[string]FakeResult{
+			"/home/dokku/web/nginx.conf.sigil": {Output: "", Err: fmt.Errorf("not found")},
+			"/home/dokku/web/app.json": {
+				Output: `{"healthchecks":{"web":[{"path":"/health","timeout":5}]},"cron":[{"command":"rake cleanup","schedule":"@hourly"}]}`,
+			},
+		},
+	}
+	reader := &DokkuReader{Runner: fake, FileRunner: fileRunner}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	app := df.Apps["web"]
+	if len(app.Healthchecks) != 1 {
+		t.Fatalf("expected 1 healthcheck proc type, got %d", len(app.Healthchecks))
+	}
+	if app.Healthchecks["web"][0].Path != "/health" {
+		t.Errorf("healthcheck path = %q, want /health", app.Healthchecks["web"][0].Path)
+	}
+	if len(app.Cron) != 1 || app.Cron[0].Command != "rake cleanup" {
+		t.Errorf("cron = %+v, unexpected", app.Cron)
+	}
+}
+
+func TestDokkuReaderMailServices(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\n"},
+			fmt.Sprintf("%v", []string{"postgres:list"}): {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):  {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mail:list"}): {
+				Output: "NAME        VERSION  STATUS\nmymail      1        running\n",
+			},
+			fmt.Sprintf("%v", []string{"mail:info", "mymail"}): {
+				Output: "=====> mymail\n       Provider:       smtp\n       Config host:    smtp.example.com\n       Config port:    587\n",
+			},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	if len(df.MailServices) != 1 {
+		t.Fatalf("expected 1 mail service, got %d", len(df.MailServices))
+	}
+	svc := df.MailServices["mymail"]
+	if svc.Provider != "smtp" {
+		t.Errorf("Provider = %q, want smtp", svc.Provider)
+	}
+	if svc.Config["host"] != "smtp.example.com" {
+		t.Errorf("Config host = %q, want smtp.example.com", svc.Config["host"])
+	}
+}
+
+func TestDokkuReaderAuthDirectories(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\n"},
+			fmt.Sprintf("%v", []string{"postgres:list"}): {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):  {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"auth:list"}): {
+				Output: "NAME        VERSION  STATUS\nmydir       1        running\n",
+			},
+			fmt.Sprintf("%v", []string{"auth:info", "mydir"}): {
+				Output: "=====> mydir\n       Provider:       ldap\n       Config url:     ldap://example.com\n",
+			},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	if len(df.AuthDirectories) != 1 {
+		t.Fatalf("expected 1 auth directory, got %d", len(df.AuthDirectories))
+	}
+	dir := df.AuthDirectories["mydir"]
+	if dir.Provider != "ldap" {
+		t.Errorf("Provider = %q, want ldap", dir.Provider)
+	}
+	if dir.Config["url"] != "ldap://example.com" {
+		t.Errorf("Config url = %q", dir.Config["url"])
+	}
+}
+
+func TestDokkuReaderAuthFrontends(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\n"},
+			fmt.Sprintf("%v", []string{"postgres:list"}): {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"redis:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mysql:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mariadb:list"}):  {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"mongo:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
+			fmt.Sprintf("%v", []string{"auth:frontend:list"}): {
+				Output: "NAME        VERSION  STATUS\nmyfe        1        running\n",
+			},
+			fmt.Sprintf("%v", []string{"auth:frontend:info", "myfe"}): {
+				Output: "=====> myfe\n       Provider:       oauth2\n       Directory:      mydir\n       Protected apps: webapp api\n",
+			},
+			fmt.Sprintf("%v", []string{"auth:oidc:list", "myfe"}): {
+				Output: "ID          SECRET     REDIRECT_URI\nclient1     secret1    https://example.com/callback\n",
+			},
+		},
+	}
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	if len(df.AuthFrontends) != 1 {
+		t.Fatalf("expected 1 auth frontend, got %d", len(df.AuthFrontends))
+	}
+	fe := df.AuthFrontends["myfe"]
+	if fe.Provider != "oauth2" {
+		t.Errorf("Provider = %q, want oauth2", fe.Provider)
+	}
+	if fe.Directory != "mydir" {
+		t.Errorf("Directory = %q, want mydir", fe.Directory)
+	}
+	if len(fe.ProtectedApps) != 2 || fe.ProtectedApps[0] != "webapp" {
+		t.Errorf("ProtectedApps = %v, unexpected", fe.ProtectedApps)
+	}
+	if !fe.OIDCEnabled {
+		t.Error("OIDCEnabled should be true")
+	}
+	if len(fe.OIDCClients) != 1 || fe.OIDCClients[0].ID != "client1" {
+		t.Errorf("OIDCClients = %+v, unexpected", fe.OIDCClients)
 	}
 }
 
