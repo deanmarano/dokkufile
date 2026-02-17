@@ -13,11 +13,12 @@ import (
 func NewInspectCmd() *cobra.Command {
 	var format string
 	var global bool
+	var includeEnv bool
 
 	cmd := &cobra.Command{
 		Use:   "inspect [app]",
 		Short: "Dump live server state as a Dokkufile",
-		Long:  "Inspect a single app (default) or all apps with --global.",
+		Long:  "Inspect a single app (default) or all apps with --global. Env vars are omitted by default; use --include-env to include them.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 && !global {
@@ -38,6 +39,14 @@ func NewInspectCmd() *cobra.Command {
 				actual = filterByApp(actual, args[0])
 				if len(actual.Apps) == 0 {
 					return fmt.Errorf("app %q not found on server", args[0])
+				}
+			}
+
+			// Strip env vars unless --include-env
+			if !includeEnv {
+				for name, app := range actual.Apps {
+					app.Env = nil
+					actual.Apps[name] = app
 				}
 			}
 
@@ -62,6 +71,7 @@ func NewInspectCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&format, "format", "yaml", "output format (yaml or json)")
 	cmd.Flags().BoolVar(&global, "global", false, "inspect all apps on the server")
+	cmd.Flags().BoolVar(&includeEnv, "include-env", false, "include environment variables (contains secrets)")
 	return cmd
 }
 
