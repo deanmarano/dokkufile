@@ -146,7 +146,9 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			fe := schema.AuthFrontend{}
 			if info, err := r.Runner.Run("auth:frontend:info", name); err == nil {
 				fe.Provider = parseReportField(info, "Provider")
-				fe.Directory = parseReportField(info, "Directory")
+				if dir := parseReportField(info, "Directory"); dir != "" && dir != "(none)" {
+					fe.Directory = dir
+				}
 				apps := parseReportField(info, "Protected apps")
 				if apps != "" {
 					fe.ProtectedApps = strings.Fields(apps)
