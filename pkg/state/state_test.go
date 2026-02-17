@@ -1480,6 +1480,58 @@ func TestCleanAppCleansDockerOptions(t *testing.T) {
 	}
 }
 
+func TestCleanAppExtractsMailFromNetwork(t *testing.T) {
+	app := schema.App{
+		Network: &schema.NetworkConfig{
+			AttachPostDeploy: "dokku.mail.default",
+		},
+	}
+	cleanApp(&app)
+	if app.Mail != "default" {
+		t.Errorf("expected Mail=default, got %q", app.Mail)
+	}
+	if app.Network != nil {
+		t.Errorf("expected Network to be nil after extracting mail, got %+v", app.Network)
+	}
+}
+
+func TestCleanAppExtractsMailAndKeepsOtherNetworks(t *testing.T) {
+	app := schema.App{
+		Network: &schema.NetworkConfig{
+			AttachPostCreate: "shared,dokku.mail.deanoftech",
+			AttachPostDeploy: "dokku.mail.deanoftech",
+		},
+	}
+	cleanApp(&app)
+	if app.Mail != "deanoftech" {
+		t.Errorf("expected Mail=deanoftech, got %q", app.Mail)
+	}
+	if app.Network == nil {
+		t.Fatal("expected Network to remain for non-mail networks")
+	}
+	if app.Network.AttachPostCreate != "shared" {
+		t.Errorf("expected AttachPostCreate=shared, got %q", app.Network.AttachPostCreate)
+	}
+	if app.Network.AttachPostDeploy != "" {
+		t.Errorf("expected AttachPostDeploy to be empty, got %q", app.Network.AttachPostDeploy)
+	}
+}
+
+func TestCleanAppExtractsAuthFrontendFromNetwork(t *testing.T) {
+	app := schema.App{
+		Network: &schema.NetworkConfig{
+			AttachPostCreate: "dokku.auth.frontend.auth",
+		},
+	}
+	cleanApp(&app)
+	if app.Auth == nil || app.Auth.Protected != "auth" {
+		t.Errorf("expected Auth.Protected=auth, got %+v", app.Auth)
+	}
+	if app.Network != nil {
+		t.Errorf("expected Network to be nil, got %+v", app.Network)
+	}
+}
+
 // Verify that the Reader interface is satisfied.
 var _ Reader = (*DokkuReader)(nil)
 // Verify the unused import is used

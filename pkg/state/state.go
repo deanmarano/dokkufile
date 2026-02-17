@@ -674,13 +674,55 @@ func cleanApp(app *schema.App) {
 		}
 	}
 
-	// 3. Clean docker options: remove --link and -v flags that duplicate links/storage
+	// 3. Extract mail/auth service references from network attachments
+	if app.Network != nil {
+		app.Network.AttachPostCreate = extractServiceNetworks(app, app.Network.AttachPostCreate)
+		app.Network.AttachPostDeploy = extractServiceNetworks(app, app.Network.AttachPostDeploy)
+		// Clean up empty network config
+		if app.Network.AttachPostCreate == "" && app.Network.AttachPostDeploy == "" &&
+			!app.Network.BindAllInterfaces && app.Network.InitialNetwork == "" &&
+			app.Network.StaticWebListener == "" && app.Network.TLD == "" {
+			app.Network = nil
+		}
+	}
+
+	// 4. Clean docker options: remove --link and -v flags that duplicate links/storage
 	cleanDockerOptions(&app.DockerOptions, app.Links, app.Storage)
 
-	// 4. Clean storage: strip -v prefix
+	// 5. Clean storage: strip -v prefix
 	for i, s := range app.Storage {
 		app.Storage[i] = strings.TrimPrefix(s, "-v ")
 	}
+}
+
+// extractServiceNetworks parses a comma-separated network attachment string,
+// extracts dokku.mail.<name> and dokku.auth.frontend.<name> references,
+// populates the app's Mail/Auth fields, and returns the remaining networks.
+func extractServiceNetworks(app *schema.App, networks string) string {
+	if networks == "" {
+		return ""
+	}
+	var remaining []string
+	for _, net := range strings.Split(networks, ",") {
+		net = strings.TrimSpace(net)
+		if strings.HasPrefix(net, "dokku.mail.") {
+			name := strings.TrimPrefix(net, "dokku.mail.")
+			if app.Mail == "" {
+				app.Mail = name
+			}
+		} else if strings.HasPrefix(net, "dokku.auth.frontend.") {
+			name := strings.TrimPrefix(net, "dokku.auth.frontend.")
+			if app.Auth == nil {
+				app.Auth = &schema.AuthConfig{}
+			}
+			if app.Auth.Protected == "" {
+				app.Auth.Protected = name
+			}
+		} else {
+			remaining = append(remaining, net)
+		}
+	}
+	return strings.Join(remaining, ",")
 }
 
 // cleanDockerOptions removes --link and -v flags from docker options
