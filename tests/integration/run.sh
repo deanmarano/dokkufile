@@ -30,10 +30,10 @@ assert_contains() {
     local needle="$3"
     if echo "$haystack" | grep -q "$needle"; then
         echo "  PASS: $label"
-        ((PASS++))
+        PASS=$((PASS + 1))
     else
         echo "  FAIL: $label (expected to find '$needle')"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     fi
 }
 
@@ -43,10 +43,10 @@ assert_not_contains() {
     local needle="$3"
     if echo "$haystack" | grep -q "$needle"; then
         echo "  FAIL: $label (did not expect to find '$needle')"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     else
         echo "  PASS: $label"
-        ((PASS++))
+        PASS=$((PASS + 1))
     fi
 }
 
@@ -94,8 +94,10 @@ echo ""
 echo "=== Test 1: Basic app (image, domains, env, scale) ==="
 
 dokku_exec apps:create web-app
-dokku_exec git:from-image web-app nginx:latest
-dokku_exec domains:set web-app example.com www.example.com
+# git:from-image may return non-zero if nginx reload fails in Docker (sudo issue on older versions)
+dokku_exec git:from-image web-app nginx:latest || true
+# domains:set may trigger nginx rebuild that fails with sudo in Docker
+dokku_exec domains:set web-app example.com www.example.com || true
 dokku_exec config:set --no-restart web-app DATABASE_URL=postgres://localhost/mydb SECRET=s3cret
 
 # Scale requires a deployed app; ps:scale may fail if not deployed yet.
@@ -129,7 +131,7 @@ if docker exec "$CONTAINER_NAME" dokku nginx:set web-app 2>/dev/null | grep -q "
     assert_contains "nginx proxy-read-timeout" "$OUTPUT" "proxy-read-timeout"
 else
     echo "  SKIP: nginx:set extended properties not available in $DOKKU_VERSION"
-    ((SKIP++))
+    SKIP=$((SKIP + 1))
 fi
 
 # ============================================================
@@ -143,7 +145,7 @@ if dokku_exec builder:set web-app selected dockerfile 2>/dev/null; then
     assert_contains "builder selected" "$OUTPUT" "dockerfile"
 else
     echo "  SKIP: builder:set not available in $DOKKU_VERSION"
-    ((SKIP++))
+    SKIP=$((SKIP + 1))
 fi
 
 # ============================================================
@@ -157,7 +159,7 @@ if dokku_exec ps:set web-app restart-policy on-failure:3 2>/dev/null; then
     assert_contains "restart policy" "$OUTPUT" "on-failure"
 else
     echo "  SKIP: ps:set restart-policy not available in $DOKKU_VERSION"
-    ((SKIP++))
+    SKIP=$((SKIP + 1))
 fi
 
 # ============================================================
@@ -173,7 +175,7 @@ if dokku_exec apps:lock web-app 2>/dev/null; then
     dokku_exec apps:unlock web-app 2>/dev/null || true
 else
     echo "  SKIP: apps:lock not available in $DOKKU_VERSION"
-    ((SKIP++))
+    SKIP=$((SKIP + 1))
 fi
 
 # ============================================================
@@ -223,8 +225,8 @@ echo ""
 echo "=== Test 9: Multiple apps ==="
 
 dokku_exec apps:create api-app
-dokku_exec git:from-image api-app node:20
-dokku_exec domains:set api-app api.example.com
+dokku_exec git:from-image api-app node:20 || true
+dokku_exec domains:set api-app api.example.com || true
 dokku_exec config:set --no-restart api-app PORT=3000
 
 OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
@@ -245,7 +247,7 @@ if dokku_exec maintenance:enable web-app 2>/dev/null; then
     dokku_exec maintenance:disable web-app 2>/dev/null || true
 else
     echo "  SKIP: maintenance plugin not installed in $DOKKU_VERSION"
-    ((SKIP++))
+    SKIP=$((SKIP + 1))
 fi
 
 # ============================================================
