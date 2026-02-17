@@ -13,7 +13,9 @@ import (
 )
 
 // commandTimeout is the maximum time to wait for a single dokku command.
-const commandTimeout = 30 * time.Second
+// Must be generous — commands like git:from-image pull Docker images, build,
+// and deploy, which can easily take several minutes.
+const commandTimeout = 5 * time.Minute
 
 // CommandRunner abstracts command execution so tests can use fakes.
 type CommandRunner interface {
