@@ -16,9 +16,13 @@ func NewPlanCmd() *cobra.Command {
 	var format string
 
 	cmd := &cobra.Command{
-		Use:   "plan",
+		Use:   "plan [file]",
 		Short: "Compare desired state to live state and print a plan",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				file = args[0]
+			}
 			desired, err := schema.Load(file)
 			if err != nil {
 				return fmt.Errorf("loading dokkufile: %w", err)

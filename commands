@@ -22,12 +22,22 @@ case "$1" in
     shift
     exec "$BINARY" import "$@"
     ;;
+  dokkufile:validate)
+    shift
+    exec "$BINARY" validate "$@"
+    ;;
+  dokkufile:version)
+    shift
+    exec "$BINARY" version "$@"
+    ;;
   dokkufile:help)
     cat <<EOF
     dokkufile:plan, Show execution plan for a Dokkufile
     dokkufile:apply, Apply a Dokkufile to the server
     dokkufile:inspect, Inspect current Dokku state
     dokkufile:import, Import existing Dokku state as a Dokkufile
+    dokkufile:validate, Validate a Dokkufile without connecting to the server
+    dokkufile:version, Print version information
 EOF
     ;;
   dokkufile)

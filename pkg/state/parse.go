@@ -48,7 +48,8 @@ func parseScaleOutput(output string) map[string]int {
 		fields := strings.Fields(trimmed)
 		if len(fields) >= 2 {
 			if count, err := strconv.Atoi(fields[1]); err == nil {
-				result[fields[0]] = count
+				name := strings.TrimSuffix(fields[0], ":")
+				result[name] = count
 			}
 		}
 	}
@@ -105,20 +106,28 @@ func parseAppsList(output string) []string {
 	return apps
 }
 
-// parseServiceList parses <type>:list output, skipping the header line.
-// Header format: "NAME  VERSION  STATUS"
+// parseServiceList parses <type>:list output, skipping headers and error lines.
+// Supports both tabular format ("NAME VERSION STATUS") and descriptive format
+// ("=====> Header\n  name (status) - N app(s) - running").
 func parseServiceList(output string) []string {
 	var services []string
-	first := true
+	seenHeader := false
 	for _, line := range strings.Split(output, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+		if trimmed == "" || strings.HasPrefix(trimmed, "/") {
 			continue
 		}
-		if first {
-			first = false
-			continue // skip header
+		// =====> lines are section headers (used by auth/mail plugins)
+		if strings.HasPrefix(trimmed, "=====>") {
+			seenHeader = true
+			continue
 		}
+		// For tabular output (postgres:list etc), skip the column header row
+		if !seenHeader && strings.HasPrefix(strings.ToLower(trimmed), "name") {
+			seenHeader = true
+			continue
+		}
+		seenHeader = true
 		fields := strings.Fields(trimmed)
 		if len(fields) >= 1 {
 			services = append(services, fields[0])

@@ -15,9 +15,13 @@ func NewApplyCmd() *cobra.Command {
 	var dryRun bool
 
 	cmd := &cobra.Command{
-		Use:   "apply",
+		Use:   "apply [file]",
 		Short: "Apply the Dokkufile to converge live state",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				file = args[0]
+			}
 			desired, err := schema.Load(file)
 			if err != nil {
 				return fmt.Errorf("loading dokkufile: %w", err)
