@@ -18,6 +18,13 @@ type Dokkufile struct {
 	MailServices    map[string]MailService        `yaml:"mail_services,omitempty" json:"mail_services,omitempty"`
 	AuthDirectories map[string]AuthDirectory     `yaml:"auth_directories,omitempty" json:"auth_directories,omitempty"`
 	AuthFrontends   map[string]AuthFrontend      `yaml:"auth_frontends,omitempty" json:"auth_frontends,omitempty"`
+	Plugins         map[string]Plugin            `yaml:"plugins,omitempty" json:"plugins,omitempty"`
+}
+
+// Plugin represents a dokku plugin to install.
+type Plugin struct {
+	URL         string `yaml:"url" json:"url"`
+	Committish  string `yaml:"committish,omitempty" json:"committish,omitempty"`
 }
 
 // Service represents a backing service (database, cache, etc).
@@ -56,6 +63,9 @@ type App struct {
 	Scripts       *ScriptsConfig                   `yaml:"scripts,omitempty" json:"scripts,omitempty"`
 	Locked        bool                             `yaml:"locked,omitempty" json:"locked,omitempty"`
 	Process       *ProcessConfig                   `yaml:"process,omitempty" json:"process,omitempty"`
+	Logs          *LogConfig                       `yaml:"logs,omitempty" json:"logs,omitempty"`
+	Scheduler     *SchedulerConfig                 `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
+	Buildpacks    []string                         `yaml:"buildpacks,omitempty" json:"buildpacks,omitempty"`
 }
 
 // DockerOptions holds docker options grouped by phase.
@@ -153,8 +163,27 @@ type ChecksConfig struct {
 
 // BuilderConfig holds builder settings for an app.
 type BuilderConfig struct {
-	Selected string `yaml:"selected,omitempty" json:"selected,omitempty"`
-	BuildDir string `yaml:"build_dir,omitempty" json:"build_dir,omitempty"`
+	Selected          string `yaml:"selected,omitempty" json:"selected,omitempty"`
+	BuildDir          string `yaml:"build_dir,omitempty" json:"build_dir,omitempty"`
+	DockerfilePath    string `yaml:"dockerfile_path,omitempty" json:"dockerfile_path,omitempty"`
+	PackProjecttomlPath string `yaml:"pack_projecttoml_path,omitempty" json:"pack_projecttoml_path,omitempty"`
+	NixpacksTomlPath  string `yaml:"nixpacks_toml_path,omitempty" json:"nixpacks_toml_path,omitempty"`
+	HerokuishAllowed  string `yaml:"herokuish_allowed,omitempty" json:"herokuish_allowed,omitempty"`
+}
+
+// LogConfig holds log management settings for an app.
+type LogConfig struct {
+	MaxSize       string `yaml:"max_size,omitempty" json:"max_size,omitempty"`
+	VectorImage   string `yaml:"vector_image,omitempty" json:"vector_image,omitempty"`
+	VectorSink    string `yaml:"vector_sink,omitempty" json:"vector_sink,omitempty"`
+	AppLabelAlias string `yaml:"app_label_alias,omitempty" json:"app_label_alias,omitempty"`
+}
+
+// SchedulerConfig holds scheduler settings for an app.
+type SchedulerConfig struct {
+	Selected              string `yaml:"selected,omitempty" json:"selected,omitempty"`
+	DockerLocalInitProcess       string `yaml:"docker_local_init_process,omitempty" json:"docker_local_init_process,omitempty"`
+	DockerLocalParallelScheduleCount string `yaml:"docker_local_parallel_schedule_count,omitempty" json:"docker_local_parallel_schedule_count,omitempty"`
 }
 
 // RegistryConfig holds Docker registry settings for an app.

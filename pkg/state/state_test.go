@@ -1121,6 +1121,158 @@ func TestDokkuReaderProcessAndLocking(t *testing.T) {
 	}
 }
 
+func TestParseBuildpacksList(t *testing.T) {
+	input := `=====> myapp buildpack urls
+  1. https://github.com/heroku/heroku-buildpack-nodejs
+  2. https://github.com/heroku/heroku-buildpack-ruby
+`
+	got := parseBuildpacksList(input)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 buildpacks, got %d", len(got))
+	}
+	if got[0] != "https://github.com/heroku/heroku-buildpack-nodejs" {
+		t.Errorf("buildpack[0] = %q", got[0])
+	}
+	if got[1] != "https://github.com/heroku/heroku-buildpack-ruby" {
+		t.Errorf("buildpack[1] = %q", got[1])
+	}
+}
+
+func TestParsePluginList(t *testing.T) {
+	input := `  00_dokku-standard    0.37.6    enabled    dokku core standard plugin
+  app-json             0.37.6    enabled    dokku core app-json plugin
+  letsencrypt          0.23.0    enabled    Auto-renewal of SSL certs
+  disabled-plugin      1.0.0     disabled   A disabled plugin
+`
+	got := parsePluginList(input)
+	// All enabled plugins should be listed
+	if _, ok := got["00_dokku-standard"]; !ok {
+		t.Error("expected 00_dokku-standard in plugins")
+	}
+	if _, ok := got["letsencrypt"]; !ok {
+		t.Error("expected letsencrypt in plugins")
+	}
+	if _, ok := got["disabled-plugin"]; ok {
+		t.Error("disabled-plugin should not be in plugins")
+	}
+}
+
+func TestDokkuReaderLogsAndScheduler(t *testing.T) {
+	runner := &FakeRunner{
+		Commands: map[string]FakeResult{
+			"[apps:list]": {Output: "=====> Apps\nmyapp\n"},
+			// Minimal app setup
+			"[git:report myapp --git-source-image]": {Output: "nginx"},
+			"[git:report myapp]":                    {Output: ""},
+			"[domains:report myapp --domains-app-vhosts]": {Output: ""},
+			"[ports:list myapp]":                           {Output: "", Err: fmt.Errorf("not found")},
+			"[config:export myapp]":                        {Output: ""},
+			"[storage:report myapp]":                       {Output: ""},
+			"[docker-options:report myapp]":                {Output: ""},
+			"[ps:scale myapp]":                             {Output: ""},
+			"[network:report myapp]":                       {Output: ""},
+			"[nginx:report myapp]":                         {Output: ""},
+			"[proxy:report myapp]":                         {Output: ""},
+			"[certs:report myapp]":                         {Output: ""},
+			"[resource:report myapp]":                      {Output: ""},
+			"[checks:report myapp]":                        {Output: ""},
+			"[builder:report myapp]":                       {Output: ""},
+			"[registry:report myapp]":                      {Output: ""},
+			"[maintenance:report myapp]":                   {Output: ""},
+			"[ps:report myapp]":                            {Output: ""},
+			"[apps:locked myapp]":                          {Output: "", Err: fmt.Errorf("not locked")},
+			"[letsencrypt:active myapp]":                   {Output: "", Err: fmt.Errorf("not active")},
+			// Logs
+			"[logs:report myapp]": {Output: `       Logs max size:           50m
+       Logs vector image:       timberio/vector:latest
+       Logs vector sink:        console://
+       Logs app label alias:    my-alias
+`},
+			// Scheduler
+			"[scheduler:report myapp]": {Output: `       Scheduler selected:      docker-local
+`},
+			"[scheduler-docker-local:report myapp]": {Output: `       Scheduler docker local init process:  true
+       Scheduler docker local parallel schedule count:  3
+`},
+			// Buildpacks
+			"[buildpacks:list myapp]": {Output: `=====> myapp buildpack urls
+  1. https://github.com/heroku/heroku-buildpack-nodejs
+`},
+			// Builder sub-plugins
+			"[builder-dockerfile:report myapp]": {Output: `       Builder dockerfile dockerfile path:  Dockerfile.prod
+`},
+			"[builder-pack:report myapp]":       {Output: ""},
+			"[builder-nixpacks:report myapp]":   {Output: ""},
+			"[builder-herokuish:report myapp]":  {Output: ""},
+		},
+	}
+
+	// Add service stubs
+	for _, svcType := range serviceTypes {
+		key := fmt.Sprintf("[%s:list]", svcType)
+		runner.Commands[key] = FakeResult{Err: fmt.Errorf("not installed")}
+	}
+	runner.Commands["[mail:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
+	runner.Commands["[auth:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
+	runner.Commands["[auth:frontend:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
+	runner.Commands["[plugin:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
+
+	reader := &DokkuReader{Runner: runner}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+
+	app := df.Apps["myapp"]
+
+	// Logs
+	if app.Logs == nil {
+		t.Fatal("Logs should not be nil")
+	}
+	if app.Logs.MaxSize != "50m" {
+		t.Errorf("Logs.MaxSize = %q, want 50m", app.Logs.MaxSize)
+	}
+	if app.Logs.VectorSink != "console://" {
+		t.Errorf("Logs.VectorSink = %q, want console://", app.Logs.VectorSink)
+	}
+	if app.Logs.VectorImage != "timberio/vector:latest" {
+		t.Errorf("Logs.VectorImage = %q", app.Logs.VectorImage)
+	}
+	if app.Logs.AppLabelAlias != "my-alias" {
+		t.Errorf("Logs.AppLabelAlias = %q", app.Logs.AppLabelAlias)
+	}
+
+	// Scheduler
+	if app.Scheduler == nil {
+		t.Fatal("Scheduler should not be nil")
+	}
+	if app.Scheduler.Selected != "docker-local" {
+		t.Errorf("Scheduler.Selected = %q, want docker-local", app.Scheduler.Selected)
+	}
+	if app.Scheduler.DockerLocalInitProcess != "true" {
+		t.Errorf("Scheduler.DockerLocalInitProcess = %q", app.Scheduler.DockerLocalInitProcess)
+	}
+	if app.Scheduler.DockerLocalParallelScheduleCount != "3" {
+		t.Errorf("Scheduler.DockerLocalParallelScheduleCount = %q", app.Scheduler.DockerLocalParallelScheduleCount)
+	}
+
+	// Buildpacks
+	if len(app.Buildpacks) != 1 {
+		t.Fatalf("expected 1 buildpack, got %d", len(app.Buildpacks))
+	}
+	if app.Buildpacks[0] != "https://github.com/heroku/heroku-buildpack-nodejs" {
+		t.Errorf("Buildpacks[0] = %q", app.Buildpacks[0])
+	}
+
+	// Builder sub-plugin
+	if app.Builder == nil {
+		t.Fatal("Builder should not be nil")
+	}
+	if app.Builder.DockerfilePath != "Dockerfile.prod" {
+		t.Errorf("Builder.DockerfilePath = %q, want Dockerfile.prod", app.Builder.DockerfilePath)
+	}
+}
+
 // Verify that the Reader interface is satisfied.
 var _ Reader = (*DokkuReader)(nil)
 // Verify the unused import is used

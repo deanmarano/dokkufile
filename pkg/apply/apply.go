@@ -87,6 +87,15 @@ func (e *Executor) commandsForStep(s plan.Step, desired, actual *schema.Dokkufil
 	case plan.UpdateAuthFrontend:
 		return e.updateAuthFrontendCommands(s.Service, desired, actual)
 
+	case plan.InstallPlugin:
+		return e.installPluginCommands(s.Service, desired)
+
+	case plan.UninstallPlugin:
+		return [][]string{{"plugin:uninstall", s.Service}}, nil
+
+	case plan.UpdatePlugin:
+		return e.installPluginCommands(s.Service, desired)
+
 	default:
 		return nil, fmt.Errorf("unknown action: %s", s.Action)
 	}
@@ -200,6 +209,21 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 	// Locked
 	if app.Locked {
 		cmds = append(cmds, []string{"apps:lock", appName})
+	}
+
+	// Logs
+	if app.Logs != nil {
+		cmds = append(cmds, logCommands(appName, app.Logs)...)
+	}
+
+	// Scheduler
+	if app.Scheduler != nil {
+		cmds = append(cmds, schedulerCommands(appName, app.Scheduler)...)
+	}
+
+	// Buildpacks
+	if len(app.Buildpacks) > 0 {
+		cmds = append(cmds, buildpacksCommands(appName, app.Buildpacks)...)
 	}
 
 	return cmds, nil
@@ -317,6 +341,21 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 			return nil, nil
 		}
 		return processCommands(s.App, dApp.Process), nil
+
+	case "logs":
+		if dApp.Logs == nil {
+			return nil, nil
+		}
+		return logCommands(s.App, dApp.Logs), nil
+
+	case "scheduler":
+		if dApp.Scheduler == nil {
+			return nil, nil
+		}
+		return schedulerCommands(s.App, dApp.Scheduler), nil
+
+	case "buildpacks":
+		return buildpacksCommands(s.App, dApp.Buildpacks), nil
 
 	default:
 		return nil, fmt.Errorf("unknown field: %s", s.Field)
@@ -831,6 +870,12 @@ func describeStep(s plan.Step) string {
 		return fmt.Sprintf("destroy auth frontend %q", s.Service)
 	case plan.UpdateAuthFrontend:
 		return fmt.Sprintf("update auth frontend %q", s.Service)
+	case plan.InstallPlugin:
+		return fmt.Sprintf("install plugin %q", s.Service)
+	case plan.UninstallPlugin:
+		return fmt.Sprintf("uninstall plugin %q", s.Service)
+	case plan.UpdatePlugin:
+		return fmt.Sprintf("update plugin %q", s.Service)
 	default:
 		return fmt.Sprintf("unknown action: %s", s.Action)
 	}
@@ -920,7 +965,7 @@ func checksCommands(appName string, checks *schema.ChecksConfig) [][]string {
 	return cmds
 }
 
-// builderCommands generates builder:set commands.
+// builderCommands generates builder:set and builder sub-plugin commands.
 func builderCommands(appName string, builder *schema.BuilderConfig) [][]string {
 	if builder == nil {
 		return nil
@@ -931,6 +976,18 @@ func builderCommands(appName string, builder *schema.BuilderConfig) [][]string {
 	}
 	if builder.BuildDir != "" {
 		cmds = append(cmds, []string{"builder:set", appName, "build-dir", builder.BuildDir})
+	}
+	if builder.DockerfilePath != "" {
+		cmds = append(cmds, []string{"builder-dockerfile:set", appName, "dockerfile-path", builder.DockerfilePath})
+	}
+	if builder.PackProjecttomlPath != "" {
+		cmds = append(cmds, []string{"builder-pack:set", appName, "projecttoml-path", builder.PackProjecttomlPath})
+	}
+	if builder.NixpacksTomlPath != "" {
+		cmds = append(cmds, []string{"builder-nixpacks:set", appName, "nixpackstoml-path", builder.NixpacksTomlPath})
+	}
+	if builder.HerokuishAllowed != "" {
+		cmds = append(cmds, []string{"builder-herokuish:set", appName, "allowed", builder.HerokuishAllowed})
 	}
 	return cmds
 }
@@ -969,4 +1026,66 @@ func processCommands(appName string, proc *schema.ProcessConfig) [][]string {
 		cmds = append(cmds, []string{"ps:set", appName, "procfile-path", proc.ProcfilePath})
 	}
 	return cmds
+}
+
+// logCommands generates logs:set commands.
+func logCommands(appName string, logs *schema.LogConfig) [][]string {
+	if logs == nil {
+		return nil
+	}
+	var cmds [][]string
+	if logs.MaxSize != "" {
+		cmds = append(cmds, []string{"logs:set", appName, "max-size", logs.MaxSize})
+	}
+	if logs.VectorImage != "" {
+		cmds = append(cmds, []string{"logs:set", appName, "vector-image", logs.VectorImage})
+	}
+	if logs.VectorSink != "" {
+		cmds = append(cmds, []string{"logs:set", appName, "vector-sink", logs.VectorSink})
+	}
+	if logs.AppLabelAlias != "" {
+		cmds = append(cmds, []string{"logs:set", appName, "app-label-alias", logs.AppLabelAlias})
+	}
+	return cmds
+}
+
+// schedulerCommands generates scheduler:set and scheduler-docker-local:set commands.
+func schedulerCommands(appName string, sched *schema.SchedulerConfig) [][]string {
+	if sched == nil {
+		return nil
+	}
+	var cmds [][]string
+	if sched.Selected != "" {
+		cmds = append(cmds, []string{"scheduler:set", appName, "selected", sched.Selected})
+	}
+	if sched.DockerLocalInitProcess != "" {
+		cmds = append(cmds, []string{"scheduler-docker-local:set", appName, "init-process", sched.DockerLocalInitProcess})
+	}
+	if sched.DockerLocalParallelScheduleCount != "" {
+		cmds = append(cmds, []string{"scheduler-docker-local:set", appName, "parallel-schedule-count", sched.DockerLocalParallelScheduleCount})
+	}
+	return cmds
+}
+
+// buildpacksCommands generates buildpacks:clear + buildpacks:add commands.
+func buildpacksCommands(appName string, buildpacks []string) [][]string {
+	var cmds [][]string
+	cmds = append(cmds, []string{"buildpacks:clear", appName})
+	for _, bp := range buildpacks {
+		cmds = append(cmds, []string{"buildpacks:add", appName, bp})
+	}
+	return cmds
+}
+
+// installPluginCommands generates plugin:install commands.
+func (e *Executor) installPluginCommands(name string, desired *schema.Dokkufile) ([][]string, error) {
+	plugin, ok := desired.Plugins[name]
+	if !ok {
+		return nil, fmt.Errorf("plugin %q not found in desired state", name)
+	}
+	cmd := []string{"plugin:install", plugin.URL, "--name", name}
+	if plugin.Committish != "" {
+		cmd = append(cmd, "--committish", plugin.Committish)
+	}
+	return [][]string{cmd}, nil
 }

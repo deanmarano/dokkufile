@@ -1420,3 +1420,238 @@ func (r *FailingRunner) Run(args ...string) (string, error) {
 	}
 	return "", nil
 }
+
+func TestUpdateLogs(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "logs"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Logs: &schema.LogConfig{
+					MaxSize:       "50m",
+					VectorSink:    "console://",
+					VectorImage:   "timberio/vector:latest",
+					AppLabelAlias: "myapp-alias",
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("logs:set", "myapp", "max-size", "50m") {
+		t.Errorf("expected logs:set max-size, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("logs:set", "myapp", "vector-sink", "console://") {
+		t.Errorf("expected logs:set vector-sink, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("logs:set", "myapp", "vector-image", "timberio/vector:latest") {
+		t.Errorf("expected logs:set vector-image, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("logs:set", "myapp", "app-label-alias", "myapp-alias") {
+		t.Errorf("expected logs:set app-label-alias, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateScheduler(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "scheduler"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Scheduler: &schema.SchedulerConfig{
+					Selected:                         "docker-local",
+					DockerLocalInitProcess:            "false",
+					DockerLocalParallelScheduleCount: "2",
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("scheduler:set", "myapp", "selected", "docker-local") {
+		t.Errorf("expected scheduler:set, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("scheduler-docker-local:set", "myapp", "init-process", "false") {
+		t.Errorf("expected scheduler-docker-local:set init-process, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("scheduler-docker-local:set", "myapp", "parallel-schedule-count", "2") {
+		t.Errorf("expected scheduler-docker-local:set parallel-schedule-count, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateBuildpacks(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "buildpacks"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Buildpacks: []string{
+					"https://github.com/heroku/heroku-buildpack-nodejs",
+					"https://github.com/heroku/heroku-buildpack-ruby",
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("buildpacks:clear", "myapp") {
+		t.Errorf("expected buildpacks:clear, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("buildpacks:add", "myapp", "https://github.com/heroku/heroku-buildpack-nodejs") {
+		t.Errorf("expected buildpacks:add nodejs, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("buildpacks:add", "myapp", "https://github.com/heroku/heroku-buildpack-ruby") {
+		t.Errorf("expected buildpacks:add ruby, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateBuilderSubPlugins(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "builder"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Builder: &schema.BuilderConfig{
+					Selected:            "dockerfile",
+					DockerfilePath:      "docker/Dockerfile.prod",
+					PackProjecttomlPath: "custom/project.toml",
+					NixpacksTomlPath:    "custom/nixpacks.toml",
+					HerokuishAllowed:    "true",
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("builder:set", "myapp", "selected", "dockerfile") {
+		t.Errorf("expected builder:set selected, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("builder-dockerfile:set", "myapp", "dockerfile-path", "docker/Dockerfile.prod") {
+		t.Errorf("expected builder-dockerfile:set, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("builder-pack:set", "myapp", "projecttoml-path", "custom/project.toml") {
+		t.Errorf("expected builder-pack:set, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("builder-nixpacks:set", "myapp", "nixpackstoml-path", "custom/nixpacks.toml") {
+		t.Errorf("expected builder-nixpacks:set, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("builder-herokuish:set", "myapp", "allowed", "true") {
+		t.Errorf("expected builder-herokuish:set, got: %v", runner.commandStrings())
+	}
+}
+
+func TestInstallPlugin(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.InstallPlugin, Service: "letsencrypt"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Plugins: map[string]schema.Plugin{
+			"letsencrypt": {
+				URL:        "https://github.com/dokku/dokku-letsencrypt.git",
+				Committish: "v1.0.0",
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("plugin:install", "https://github.com/dokku/dokku-letsencrypt.git", "--name", "letsencrypt", "--committish", "v1.0.0") {
+		t.Errorf("expected plugin:install, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUninstallPlugin(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UninstallPlugin, Service: "letsencrypt"},
+		},
+	}
+	desired := &schema.Dokkufile{Version: "1"}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("plugin:uninstall", "letsencrypt") {
+		t.Errorf("expected plugin:uninstall, got: %v", runner.commandStrings())
+	}
+}

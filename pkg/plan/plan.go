@@ -26,6 +26,9 @@ const (
 	CreateAuthFrontend  Action = "create_auth_frontend"
 	DestroyAuthFrontend Action = "destroy_auth_frontend"
 	UpdateAuthFrontend  Action = "update_auth_frontend"
+	InstallPlugin       Action = "install_plugin"
+	UninstallPlugin     Action = "uninstall_plugin"
+	UpdatePlugin        Action = "update_plugin"
 )
 
 // Step is a single planned change.
@@ -80,6 +83,12 @@ func (p *Plan) String() string {
 			fmt.Fprintf(&b, "- auth frontend %q\n", s.Service)
 		case UpdateAuthFrontend:
 			fmt.Fprintf(&b, "~ auth frontend %q\n", s.Service)
+		case InstallPlugin:
+			fmt.Fprintf(&b, "+ plugin %q\n", s.Service)
+		case UninstallPlugin:
+			fmt.Fprintf(&b, "- plugin %q\n", s.Service)
+		case UpdatePlugin:
+			fmt.Fprintf(&b, "~ plugin %q\n", s.Service)
 		}
 	}
 	return b.String()
@@ -93,6 +102,8 @@ func Diff(desired, actual *schema.Dokkufile) *Plan {
 	steps = append(steps, diffMailServices(desired, actual)...)
 	steps = append(steps, diffAuthDirectories(desired, actual)...)
 	steps = append(steps, diffAuthFrontends(desired, actual)...)
+	steps = append(steps, diffPlugins(desired, actual)...)
+	// Plugins should be installed before apps that may depend on them
 	steps = append(steps, diffApps(desired, actual)...)
 
 	return &Plan{Steps: steps}
@@ -230,6 +241,32 @@ func authFrontendEqual(a, b schema.AuthFrontend) bool {
 		}
 	}
 	return true
+}
+
+func diffPlugins(desired, actual *schema.Dokkufile) []Step {
+	var steps []Step
+	desiredPlugins := desired.Plugins
+	actualPlugins := actual.Plugins
+	if desiredPlugins == nil {
+		desiredPlugins = map[string]schema.Plugin{}
+	}
+	if actualPlugins == nil {
+		actualPlugins = map[string]schema.Plugin{}
+	}
+
+	for name, d := range desiredPlugins {
+		if a, exists := actualPlugins[name]; !exists {
+			steps = append(steps, Step{Action: InstallPlugin, Service: name})
+		} else if d.URL != a.URL || d.Committish != a.Committish {
+			steps = append(steps, Step{Action: UpdatePlugin, Service: name})
+		}
+	}
+	for name := range actualPlugins {
+		if _, exists := desiredPlugins[name]; !exists {
+			steps = append(steps, Step{Action: UninstallPlugin, Service: name})
+		}
+	}
+	return steps
 }
 
 func diffApps(desired, actual *schema.Dokkufile) []Step {
@@ -490,6 +527,33 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
+	// Logs
+	if !logConfigEqual(desired.Logs, actual.Logs) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "logs",
+		})
+	}
+
+	// Scheduler
+	if !schedulerConfigEqual(desired.Scheduler, actual.Scheduler) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "scheduler",
+		})
+	}
+
+	// Buildpacks
+	if !buildpacksEqual(desired.Buildpacks, actual.Buildpacks) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "buildpacks",
+		})
+	}
+
 	// Process management
 	if !processEqual(desired.Process, actual.Process) {
 		steps = append(steps, Step{
@@ -690,4 +754,36 @@ func processEqual(a, b *schema.ProcessConfig) bool {
 		return false
 	}
 	return *a == *b
+}
+
+func logConfigEqual(a, b *schema.LogConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func schedulerConfigEqual(a, b *schema.SchedulerConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func buildpacksEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

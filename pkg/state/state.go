@@ -166,6 +166,14 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 		}
 	}
 
+	// Read plugins.
+	if out, err := r.Runner.Run("plugin:list"); err == nil {
+		plugins := parsePluginList(out)
+		if len(plugins) > 0 {
+			df.Plugins = plugins
+		}
+	}
+
 	// Read apps.
 	appsOut, err := r.Runner.Run("apps:list")
 	if err != nil {
@@ -368,6 +376,80 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			}
 			if proc.RestartPolicy != "" || proc.ProcfilePath != "" {
 				app.Process = proc
+			}
+		}
+
+		// Log configuration
+		if out, err := r.Runner.Run("logs:report", appName); err == nil {
+			logs := &schema.LogConfig{
+				MaxSize:       parseReportField(out, "Logs max size"),
+				VectorImage:   parseReportField(out, "Logs vector image"),
+				VectorSink:    parseReportField(out, "Logs vector sink"),
+				AppLabelAlias: parseReportField(out, "Logs app label alias"),
+			}
+			if logs.MaxSize != "" || logs.VectorImage != "" || logs.VectorSink != "" || logs.AppLabelAlias != "" {
+				app.Logs = logs
+			}
+		}
+
+		// Scheduler configuration
+		{
+			sched := &schema.SchedulerConfig{}
+			if out, err := r.Runner.Run("scheduler:report", appName); err == nil {
+				sched.Selected = parseReportField(out, "Scheduler selected")
+			}
+			if out, err := r.Runner.Run("scheduler-docker-local:report", appName); err == nil {
+				sched.DockerLocalInitProcess = parseReportField(out, "Scheduler docker local init process")
+				sched.DockerLocalParallelScheduleCount = parseReportField(out, "Scheduler docker local parallel schedule count")
+			}
+			if sched.Selected != "" || sched.DockerLocalInitProcess != "" || sched.DockerLocalParallelScheduleCount != "" {
+				app.Scheduler = sched
+			}
+		}
+
+		// Buildpacks
+		if out, err := r.Runner.Run("buildpacks:list", appName); err == nil {
+			bps := parseBuildpacksList(out)
+			if len(bps) > 0 {
+				app.Buildpacks = bps
+			}
+		}
+
+		// Builder sub-plugin properties
+		if out, err := r.Runner.Run("builder-dockerfile:report", appName); err == nil {
+			dfPath := parseReportField(out, "Builder dockerfile dockerfile path")
+			if dfPath != "" {
+				if app.Builder == nil {
+					app.Builder = &schema.BuilderConfig{}
+				}
+				app.Builder.DockerfilePath = dfPath
+			}
+		}
+		if out, err := r.Runner.Run("builder-pack:report", appName); err == nil {
+			ptPath := parseReportField(out, "Builder pack projecttoml path")
+			if ptPath != "" {
+				if app.Builder == nil {
+					app.Builder = &schema.BuilderConfig{}
+				}
+				app.Builder.PackProjecttomlPath = ptPath
+			}
+		}
+		if out, err := r.Runner.Run("builder-nixpacks:report", appName); err == nil {
+			npPath := parseReportField(out, "Builder nixpacks nixpackstoml path")
+			if npPath != "" {
+				if app.Builder == nil {
+					app.Builder = &schema.BuilderConfig{}
+				}
+				app.Builder.NixpacksTomlPath = npPath
+			}
+		}
+		if out, err := r.Runner.Run("builder-herokuish:report", appName); err == nil {
+			allowed := parseReportField(out, "Builder herokuish allowed")
+			if allowed != "" {
+				if app.Builder == nil {
+					app.Builder = &schema.BuilderConfig{}
+				}
+				app.Builder.HerokuishAllowed = allowed
 			}
 		}
 

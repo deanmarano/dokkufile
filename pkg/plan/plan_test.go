@@ -974,6 +974,9 @@ func TestNoChangesNewFields(t *testing.T) {
 				Scripts:     &schema.ScriptsConfig{Predeploy: "rake db:migrate"},
 				Locked:      true,
 				Process:     &schema.ProcessConfig{RestartPolicy: "always"},
+				Logs:        &schema.LogConfig{MaxSize: "20m", VectorSink: "console://"},
+				Scheduler:   &schema.SchedulerConfig{Selected: "docker-local", DockerLocalInitProcess: "true"},
+				Buildpacks:  []string{"https://github.com/heroku/heroku-buildpack-nodejs"},
 			},
 		},
 	}
@@ -982,5 +985,127 @@ func TestNoChangesNewFields(t *testing.T) {
 
 	if len(p.Steps) != 0 {
 		t.Errorf("expected no steps, got %d: %v", len(p.Steps), p.String())
+	}
+}
+
+func TestDetectLogChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Logs: &schema.LogConfig{MaxSize: "50m"}},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Logs: &schema.LogConfig{MaxSize: "20m"}},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Field == "logs" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected logs update step")
+	}
+}
+
+func TestDetectSchedulerChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Scheduler: &schema.SchedulerConfig{Selected: "docker-local"}},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx"},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Field == "scheduler" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected scheduler update step")
+	}
+}
+
+func TestDetectBuildpacksChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Buildpacks: []string{"https://github.com/heroku/heroku-buildpack-nodejs"}},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx"},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Field == "buildpacks" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected buildpacks update step")
+	}
+}
+
+func TestDetectPluginChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Plugins: map[string]schema.Plugin{
+			"letsencrypt": {URL: "https://github.com/dokku/dokku-letsencrypt.git"},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == InstallPlugin && s.Service == "letsencrypt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected install plugin step")
+	}
+}
+
+func TestDetectPluginRemoval(t *testing.T) {
+	desired := &schema.Dokkufile{Version: "1"}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Plugins: map[string]schema.Plugin{
+			"letsencrypt": {URL: "https://github.com/dokku/dokku-letsencrypt.git"},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == UninstallPlugin && s.Service == "letsencrypt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected uninstall plugin step")
 	}
 }

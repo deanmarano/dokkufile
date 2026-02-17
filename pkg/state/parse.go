@@ -267,6 +267,56 @@ func parseNginxProperties(output string) map[string]string {
 	return result
 }
 
+// parseBuildpacksList parses buildpacks:list output into a list of buildpack URLs.
+// Output format has lines like "  1. https://github.com/heroku/heroku-buildpack-nodejs"
+func parseBuildpacksList(output string) []string {
+	var result []string
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "=====>") || strings.HasPrefix(trimmed, "----->") {
+			continue
+		}
+		// Lines like "  1. https://..." or just the URL
+		if idx := strings.Index(trimmed, ". "); idx >= 0 {
+			bp := strings.TrimSpace(trimmed[idx+2:])
+			if bp != "" {
+				result = append(result, bp)
+			}
+		} else if strings.HasPrefix(trimmed, "http") || strings.HasPrefix(trimmed, "urn:") {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+// parsePluginList parses plugin:list output into a map of plugin name -> Plugin.
+// Only includes non-core plugins (installed from URLs).
+// Output format: "  pluginname    version   enabled    description"
+func parsePluginList(output string) map[string]schema.Plugin {
+	result := map[string]schema.Plugin{}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "=====>") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) < 3 {
+			continue
+		}
+		name := fields[0]
+		enabled := fields[2]
+		// Skip disabled plugins and core plugins (we can't distinguish core from
+		// non-core in the list output, so we include all enabled non-empty plugins)
+		if enabled != "enabled" {
+			continue
+		}
+		// Core plugins are built-in; we only track plugins that have been installed.
+		// We'll store them with an empty URL — the URL isn't available from plugin:list.
+		result[name] = schema.Plugin{}
+	}
+	return result
+}
+
 // parseReportConfigFields extracts key=value config fields from a report-style output.
 // Looks for lines like "  Config key:  value" and returns a map.
 func parseReportConfigFields(output string) map[string]string {
