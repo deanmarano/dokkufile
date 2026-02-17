@@ -189,6 +189,18 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 	// Read global settings.
 	df.Global = r.readGlobalConfig()
 
+	// Read global proxy configs for dedup against per-app values.
+	var globalCaddy, globalHAProxy, globalTraefik map[string]string
+	if out, err := r.Runner.Run("caddy:report", "--global"); err == nil {
+		globalCaddy = parseProxyProperties(out, "Caddy", caddyPropertyNames)
+	}
+	if out, err := r.Runner.Run("haproxy:report", "--global"); err == nil {
+		globalHAProxy = parseProxyProperties(out, "Haproxy", haproxyPropertyNames)
+	}
+	if out, err := r.Runner.Run("traefik:report", "--global"); err == nil {
+		globalTraefik = parseProxyProperties(out, "Traefik", traefikPropertyNames)
+	}
+
 	// Read apps.
 	appsOut, err := r.Runner.Run("apps:list")
 	if err != nil {
@@ -311,7 +323,9 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 		}
 
 		// Proxy config
+		var proxyComputedType string
 		if out, err := r.Runner.Run("proxy:report", appName); err == nil {
+			proxyComputedType = parseReportField(out, "Proxy computed type")
 			proxy := &schema.ProxyConfig{
 				Enabled: parseReportField(out, "Proxy enabled") == "true",
 				Type:    parseReportField(out, "Proxy type"),
@@ -321,36 +335,39 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			}
 		}
 
-		// Caddy proxy properties
-		if out, err := r.Runner.Run("caddy:report", appName); err == nil {
-			props := parseProxyProperties(out, "Caddy", caddyPropertyNames)
-			if len(props) > 0 {
-				if app.Proxy == nil {
-					app.Proxy = &schema.ProxyConfig{}
+		// Only include alternative proxy configs if the app actually uses that proxy,
+		// and only include properties that differ from the global defaults.
+		if proxyComputedType == "caddy" {
+			if out, err := r.Runner.Run("caddy:report", appName); err == nil {
+				props := diffProxyProperties(parseProxyProperties(out, "Caddy", caddyPropertyNames), globalCaddy)
+				if len(props) > 0 {
+					if app.Proxy == nil {
+						app.Proxy = &schema.ProxyConfig{}
+					}
+					app.Proxy.Caddy = props
 				}
-				app.Proxy.Caddy = props
 			}
 		}
-
-		// HAProxy proxy properties
-		if out, err := r.Runner.Run("haproxy:report", appName); err == nil {
-			props := parseProxyProperties(out, "Haproxy", haproxyPropertyNames)
-			if len(props) > 0 {
-				if app.Proxy == nil {
-					app.Proxy = &schema.ProxyConfig{}
+		if proxyComputedType == "haproxy" {
+			if out, err := r.Runner.Run("haproxy:report", appName); err == nil {
+				props := diffProxyProperties(parseProxyProperties(out, "Haproxy", haproxyPropertyNames), globalHAProxy)
+				if len(props) > 0 {
+					if app.Proxy == nil {
+						app.Proxy = &schema.ProxyConfig{}
+					}
+					app.Proxy.HAProxy = props
 				}
-				app.Proxy.HAProxy = props
 			}
 		}
-
-		// Traefik proxy properties
-		if out, err := r.Runner.Run("traefik:report", appName); err == nil {
-			props := parseProxyProperties(out, "Traefik", traefikPropertyNames)
-			if len(props) > 0 {
-				if app.Proxy == nil {
-					app.Proxy = &schema.ProxyConfig{}
+		if proxyComputedType == "traefik" {
+			if out, err := r.Runner.Run("traefik:report", appName); err == nil {
+				props := diffProxyProperties(parseProxyProperties(out, "Traefik", traefikPropertyNames), globalTraefik)
+				if len(props) > 0 {
+					if app.Proxy == nil {
+						app.Proxy = &schema.ProxyConfig{}
+					}
+					app.Proxy.Traefik = props
 				}
-				app.Proxy.Traefik = props
 			}
 		}
 
@@ -567,10 +584,198 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			app.Auth.Protected = feName
 		}
 
+		cleanApp(&app)
 		df.Apps[appName] = app
 	}
 
 	return df, nil
+}
+
+// internalEnvPrefixes lists env var prefixes that are internal dokku state.
+var internalEnvPrefixes = []string{
+	"DOKKU_",
+	"GIT_REV",
+}
+
+// cleanApp removes internal/default values from an app to produce clean output.
+func cleanApp(app *schema.App) {
+	// 1. Filter internal env vars
+	if len(app.Env) > 0 {
+		cleaned := map[string]string{}
+		for k, v := range app.Env {
+			internal := false
+			for _, prefix := range internalEnvPrefixes {
+				if strings.HasPrefix(k, prefix) {
+					internal = true
+					break
+				}
+			}
+			if !internal {
+				cleaned[k] = v
+			}
+		}
+		if len(cleaned) > 0 {
+			app.Env = cleaned
+		} else {
+			app.Env = nil
+		}
+	}
+
+	// 2. Filter default values
+	// checks: disabled:[none] and skipped:[none] are defaults
+	if app.Checks != nil {
+		if len(app.Checks.Disabled) == 1 && app.Checks.Disabled[0] == "none" {
+			app.Checks.Disabled = nil
+		}
+		if len(app.Checks.Skipped) == 1 && app.Checks.Skipped[0] == "none" {
+			app.Checks.Skipped = nil
+		}
+		if len(app.Checks.Disabled) == 0 && len(app.Checks.Skipped) == 0 && app.Checks.WaitToRetire == 0 {
+			app.Checks = nil
+		}
+	}
+
+	// git branch "master" is the default
+	if app.Git != nil {
+		if app.Git.Branch == "master" {
+			app.Git.Branch = ""
+		}
+		if app.Git.Branch == "" && !app.Git.KeepGitDir && app.Git.Repo == "" {
+			app.Git = nil
+		}
+	}
+
+	// scheduler docker_local_init_process "true" is the default
+	if app.Scheduler != nil {
+		if app.Scheduler.DockerLocalInitProcess == "true" {
+			app.Scheduler.DockerLocalInitProcess = ""
+		}
+		if app.Scheduler.Selected == "" && app.Scheduler.DockerLocalInitProcess == "" && app.Scheduler.DockerLocalParallelScheduleCount == "" {
+			app.Scheduler = nil
+		}
+	}
+
+	// process restart_policy "on-failure:10" is the default
+	if app.Process != nil {
+		if app.Process.RestartPolicy == "on-failure:10" {
+			app.Process.RestartPolicy = ""
+		}
+		if app.Process.RestartPolicy == "" && app.Process.ProcfilePath == "" {
+			app.Process = nil
+		}
+	}
+
+	// 3. Clean docker options: remove --link and -v flags that duplicate links/storage
+	cleanDockerOptions(&app.DockerOptions, app.Links, app.Storage)
+
+	// 4. Clean storage: strip -v prefix
+	for i, s := range app.Storage {
+		app.Storage[i] = strings.TrimPrefix(s, "-v ")
+	}
+}
+
+// cleanDockerOptions removes --link and -v flags from docker options
+// that are already represented by the links and storage fields.
+func cleanDockerOptions(opts *schema.DockerOptions, links map[string]string, storage []string) {
+	opts.Build = filterDockerOptionFlags(opts.Build, links, storage)
+	opts.Deploy = filterDockerOptionFlags(opts.Deploy, links, storage)
+	opts.Run = filterDockerOptionFlags(opts.Run, links, storage)
+}
+
+// filterDockerOptionFlags removes --link, -v, and --restart flags
+// that duplicate structured fields from a docker options list.
+func filterDockerOptionFlags(options []string, links map[string]string, storage []string) []string {
+	if len(options) == 0 {
+		return nil
+	}
+
+	// Build set of known link/storage patterns to filter
+	linkPrefixes := map[string]bool{}
+	for _, svcName := range links {
+		linkPrefixes["--link dokku."] = true // catches all dokku service links
+		_ = svcName
+	}
+
+	storagePaths := map[string]bool{}
+	for _, s := range storage {
+		path := strings.TrimPrefix(s, "-v ")
+		storagePaths[path] = true
+	}
+
+	var result []string
+	for _, opt := range options {
+		// Split compound options (single string with multiple flags)
+		parts := splitDockerOption(opt)
+		var kept []string
+		for _, part := range parts {
+			if shouldFilterDockerFlag(part, links, storagePaths) {
+				continue
+			}
+			kept = append(kept, part)
+		}
+		if len(kept) > 0 {
+			result = append(result, strings.Join(kept, " "))
+		}
+	}
+	return result
+}
+
+// splitDockerOption splits a compound docker option string into individual flags.
+// e.g. "--link foo:bar --restart=always -v /a:/b" -> ["--link foo:bar", "--restart=always", "-v /a:/b"]
+func splitDockerOption(opt string) []string {
+	var parts []string
+	var current strings.Builder
+	tokens := strings.Fields(opt)
+	for i := 0; i < len(tokens); i++ {
+		t := tokens[i]
+		if strings.HasPrefix(t, "-") && current.Len() > 0 {
+			parts = append(parts, strings.TrimSpace(current.String()))
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteString(" ")
+		}
+		current.WriteString(t)
+	}
+	if current.Len() > 0 {
+		parts = append(parts, strings.TrimSpace(current.String()))
+	}
+	return parts
+}
+
+// shouldFilterDockerFlag returns true if a docker flag duplicates links, storage,
+// or the default restart policy.
+func shouldFilterDockerFlag(flag string, links map[string]string, storagePaths map[string]bool) bool {
+	// Filter --link flags for dokku services
+	if strings.HasPrefix(flag, "--link dokku.") && len(links) > 0 {
+		return true
+	}
+
+	// Filter -v flags that match storage mounts
+	if strings.HasPrefix(flag, "-v ") {
+		path := strings.TrimPrefix(flag, "-v ")
+		if storagePaths[path] {
+			return true
+		}
+	}
+
+	// Filter default restart policy
+	if flag == "--restart=on-failure:10" {
+		return true
+	}
+
+	return false
+}
+
+// diffProxyProperties returns only properties in app that differ from global.
+func diffProxyProperties(app, global map[string]string) map[string]string {
+	result := map[string]string{}
+	for k, v := range app {
+		if global[k] != v {
+			result[k] = v
+		}
+	}
+	return result
 }
 
 // readGlobalConfig reads server-wide default settings using --global reports.

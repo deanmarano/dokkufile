@@ -1257,8 +1257,9 @@ func TestDokkuReaderLogsAndScheduler(t *testing.T) {
 	if app.Scheduler.Selected != "docker-local" {
 		t.Errorf("Scheduler.Selected = %q, want docker-local", app.Scheduler.Selected)
 	}
-	if app.Scheduler.DockerLocalInitProcess != "true" {
-		t.Errorf("Scheduler.DockerLocalInitProcess = %q", app.Scheduler.DockerLocalInitProcess)
+	// DockerLocalInitProcess "true" is filtered as a default
+	if app.Scheduler.DockerLocalInitProcess != "" {
+		t.Errorf("Scheduler.DockerLocalInitProcess = %q, want empty (filtered as default)", app.Scheduler.DockerLocalInitProcess)
 	}
 	if app.Scheduler.DockerLocalParallelScheduleCount != "3" {
 		t.Errorf("Scheduler.DockerLocalParallelScheduleCount = %q", app.Scheduler.DockerLocalParallelScheduleCount)
@@ -1358,6 +1359,124 @@ func TestDokkuReaderAuthLink(t *testing.T) {
 	app := df.Apps["myapp"]
 	if app.Auth == nil || app.Auth.Directory != "mydir" {
 		t.Errorf("expected Auth.Directory=mydir, got %v", app.Auth)
+	}
+}
+
+func TestCleanAppFiltersInternalEnv(t *testing.T) {
+	app := &schema.App{
+		Env: map[string]string{
+			"DATABASE_URL":        "postgres://localhost/db",
+			"DOKKU_APP_RESTORE":   "1",
+			"DOKKU_APP_TYPE":      "dockerfile",
+			"DOKKU_PROXY_PORT":    "80",
+			"DOKKU_PROXY_SSL_PORT": "443",
+			"GIT_REV":             "abc123",
+			"SECRET_KEY":          "s3cret",
+		},
+	}
+	cleanApp(app)
+	if len(app.Env) != 2 {
+		t.Errorf("expected 2 env vars, got %d: %v", len(app.Env), app.Env)
+	}
+	if app.Env["DATABASE_URL"] != "postgres://localhost/db" {
+		t.Error("DATABASE_URL should be kept")
+	}
+	if app.Env["SECRET_KEY"] != "s3cret" {
+		t.Error("SECRET_KEY should be kept")
+	}
+}
+
+func TestCleanAppFiltersDefaults(t *testing.T) {
+	app := &schema.App{
+		Git: &schema.GitConfig{Branch: "master"},
+		Checks: &schema.ChecksConfig{
+			Disabled: []string{"none"},
+			Skipped:  []string{"none"},
+		},
+		Process:   &schema.ProcessConfig{RestartPolicy: "on-failure:10"},
+		Scheduler: &schema.SchedulerConfig{DockerLocalInitProcess: "true"},
+	}
+	cleanApp(app)
+	if app.Git != nil {
+		t.Error("Git should be nil (branch master is default)")
+	}
+	if app.Checks != nil {
+		t.Error("Checks should be nil (disabled/skipped none are defaults)")
+	}
+	if app.Process != nil {
+		t.Error("Process should be nil (on-failure:10 is default)")
+	}
+	if app.Scheduler != nil {
+		t.Error("Scheduler should be nil (init process true is default)")
+	}
+}
+
+func TestCleanAppPreservesNonDefaults(t *testing.T) {
+	app := &schema.App{
+		Git: &schema.GitConfig{Branch: "main"},
+		Process: &schema.ProcessConfig{RestartPolicy: "always"},
+		Scheduler: &schema.SchedulerConfig{
+			Selected:                "docker-local",
+			DockerLocalInitProcess:  "true",
+		},
+	}
+	cleanApp(app)
+	if app.Git == nil || app.Git.Branch != "main" {
+		t.Error("Git branch 'main' should be preserved")
+	}
+	if app.Process == nil || app.Process.RestartPolicy != "always" {
+		t.Error("Process restart_policy 'always' should be preserved")
+	}
+	if app.Scheduler == nil || app.Scheduler.Selected != "docker-local" {
+		t.Error("Scheduler selected should be preserved")
+	}
+	// DockerLocalInitProcess should be cleared even with other fields present
+	if app.Scheduler.DockerLocalInitProcess != "" {
+		t.Error("Scheduler DockerLocalInitProcess 'true' should be cleared")
+	}
+}
+
+func TestCleanAppCleansStorage(t *testing.T) {
+	app := &schema.App{
+		Storage: []string{"-v /host/path:/container/path", "-v /other:/data"},
+	}
+	cleanApp(app)
+	if app.Storage[0] != "/host/path:/container/path" {
+		t.Errorf("Storage[0] = %q, want /host/path:/container/path", app.Storage[0])
+	}
+	if app.Storage[1] != "/other:/data" {
+		t.Errorf("Storage[1] = %q, want /other:/data", app.Storage[1])
+	}
+}
+
+func TestCleanAppCleansDockerOptions(t *testing.T) {
+	app := &schema.App{
+		Links: map[string]string{"postgres": "mydb"},
+		Storage: []string{"-v /data:/app/data"},
+		DockerOptions: schema.DockerOptions{
+			Deploy: []string{
+				"--link dokku.postgres.mydb:dokku-postgres-mydb --restart=on-failure:10 -v /data:/app/data --cap-add=SYS_ADMIN",
+			},
+			Run: []string{
+				"--link dokku.postgres.mydb:dokku-postgres-mydb -v /data:/app/data",
+			},
+			Build: []string{
+				"--link dokku.postgres.mydb:dokku-postgres-mydb",
+			},
+		},
+	}
+	cleanApp(app)
+	// Deploy should only keep --cap-add=SYS_ADMIN
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--cap-add=SYS_ADMIN" {
+		t.Errorf("Deploy = %v, want [--cap-add=SYS_ADMIN]", app.DockerOptions.Deploy)
+	}
+	// Run should be empty (all flags filtered)
+	if len(app.DockerOptions.Run) != 0 {
+		t.Errorf("Run = %v, want empty", app.DockerOptions.Run)
+	}
+	// Build should be empty (all flags filtered)
+	if len(app.DockerOptions.Build) != 0 {
+		t.Errorf("Build = %v, want empty", app.DockerOptions.Build)
 	}
 }
 
