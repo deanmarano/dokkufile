@@ -139,8 +139,8 @@ services:
 	if !ok {
 		t.Fatal("expected app 'web' to exist")
 	}
-	if app.Ports["http"] != "8080:80" {
-		t.Errorf("expected port 8080:80, got %q", app.Ports["http"])
+	if app.Ports["http:8080"] != "80" {
+		t.Errorf("expected port http:8080 -> 80, got %v", app.Ports)
 	}
 }
 
@@ -191,6 +191,190 @@ services:
 	}
 	if len(app.Storage) != 1 || app.Storage[0] != "./data:/var/www/html" {
 		t.Errorf("unexpected storage: %v", app.Storage)
+	}
+}
+
+func TestAppWithHTTPSPort(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - "443:8443"
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Ports["https:443"] != "8443" {
+		t.Errorf("expected https:443 -> 8443, got %v", app.Ports)
+	}
+}
+
+func TestAppWithMultiplePorts(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - "80:8080"
+      - "443:8443"
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Ports["http:80"] != "8080" {
+		t.Errorf("expected http:80 -> 8080, got %v", app.Ports)
+	}
+	if app.Ports["https:443"] != "8443" {
+		t.Errorf("expected https:443 -> 8443, got %v", app.Ports)
+	}
+}
+
+func TestDetectClickhouseService(t *testing.T) {
+	input := `
+version: "3"
+services:
+  analytics:
+    image: clickhouse/clickhouse-server:latest
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	svc, ok := df.Services["analytics"]
+	if !ok {
+		t.Fatal("expected service 'analytics' to be detected")
+	}
+	if svc.Type != "clickhouse" {
+		t.Errorf("expected type clickhouse, got %q", svc.Type)
+	}
+}
+
+func TestDetectNatsService(t *testing.T) {
+	input := `
+version: "3"
+services:
+  mq:
+    image: nats:2.10
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	svc, ok := df.Services["mq"]
+	if !ok {
+		t.Fatal("expected service 'mq' to be detected")
+	}
+	if svc.Type != "nats" {
+		t.Errorf("expected type nats, got %q", svc.Type)
+	}
+}
+
+func TestAppWithHealthcheck(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Healthchecks == nil {
+		t.Fatal("expected healthchecks to be set")
+	}
+	hcs := app.Healthchecks["web"]
+	if len(hcs) != 1 {
+		t.Fatalf("expected 1 healthcheck, got %d", len(hcs))
+	}
+	if hcs[0].Command != "curl -f http://localhost/health" {
+		t.Errorf("expected healthcheck command, got %q", hcs[0].Command)
+	}
+	if hcs[0].Attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", hcs[0].Attempts)
+	}
+	if hcs[0].Timeout != 10 {
+		t.Errorf("expected 10s timeout, got %d", hcs[0].Timeout)
+	}
+	if hcs[0].Wait != 30 {
+		t.Errorf("expected 30s wait, got %d", hcs[0].Wait)
+	}
+}
+
+func TestAppWithDeployReplicas(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    deploy:
+      replicas: 3
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Scale["web"] != 3 {
+		t.Errorf("expected scale web=3, got %v", app.Scale)
+	}
+}
+
+func TestAppWithDeployResources(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Resources == nil {
+		t.Fatal("expected resources to be set")
+	}
+	rc := app.Resources["web"]
+	if rc.Limits.CPU != "0.5" {
+		t.Errorf("expected limits cpu=0.5, got %q", rc.Limits.CPU)
+	}
+	if rc.Limits.Memory != "512M" {
+		t.Errorf("expected limits memory=512M, got %q", rc.Limits.Memory)
+	}
+	if rc.Reservations.CPU != "0.25" {
+		t.Errorf("expected reservations cpu=0.25, got %q", rc.Reservations.CPU)
+	}
+	if rc.Reservations.Memory != "256M" {
+		t.Errorf("expected reservations memory=256M, got %q", rc.Reservations.Memory)
 	}
 }
 

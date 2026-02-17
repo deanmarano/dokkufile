@@ -254,9 +254,14 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 		cmds = append(cmds, []string{"mail:link", app.Mail, appName})
 	}
 
-	// Auth link
-	if app.Auth != nil && app.Auth.Directory != "" {
-		cmds = append(cmds, []string{"auth:link", app.Auth.Directory, appName})
+	// Auth link + protection
+	if app.Auth != nil {
+		if app.Auth.Directory != "" {
+			cmds = append(cmds, []string{"auth:link", app.Auth.Directory, appName})
+		}
+		if app.Auth.Protected != "" {
+			cmds = append(cmds, []string{"auth:frontend:protect", app.Auth.Protected, appName})
+		}
 	}
 
 	return cmds, nil
@@ -983,22 +988,32 @@ func mailLinkCommands(appName, desired, actual string) [][]string {
 	return cmds
 }
 
-// authLinkCommands generates auth:link/unlink commands for an app.
+// authLinkCommands generates auth:link/unlink and auth:frontend:protect/unprotect commands for an app.
 func authLinkCommands(appName string, desired, actual *schema.AuthConfig) [][]string {
 	var cmds [][]string
 	oldDir := ""
 	newDir := ""
+	oldProtected := ""
+	newProtected := ""
 	if actual != nil {
 		oldDir = actual.Directory
+		oldProtected = actual.Protected
 	}
 	if desired != nil {
 		newDir = desired.Directory
+		newProtected = desired.Protected
 	}
 	if oldDir != "" && oldDir != newDir {
 		cmds = append(cmds, []string{"auth:unlink", oldDir, appName})
 	}
 	if newDir != "" && newDir != oldDir {
 		cmds = append(cmds, []string{"auth:link", newDir, appName})
+	}
+	if oldProtected != "" && oldProtected != newProtected {
+		cmds = append(cmds, []string{"auth:frontend:unprotect", oldProtected, appName})
+	}
+	if newProtected != "" && newProtected != oldProtected {
+		cmds = append(cmds, []string{"auth:frontend:protect", newProtected, appName})
 	}
 	return cmds
 }

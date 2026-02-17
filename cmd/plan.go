@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -12,6 +13,7 @@ import (
 
 func NewPlanCmd() *cobra.Command {
 	var file string
+	var format string
 
 	cmd := &cobra.Command{
 		Use:   "plan",
@@ -32,7 +34,17 @@ func NewPlanCmd() *cobra.Command {
 			}
 
 			p := plan.Diff(desired, actual)
-			fmt.Print(p.String())
+
+			switch format {
+			case "json":
+				data, err := json.MarshalIndent(p, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(data))
+			default:
+				fmt.Print(p.String())
+			}
 
 			if len(p.Steps) > 0 {
 				os.Exit(2) // non-zero to signal drift
@@ -42,5 +54,6 @@ func NewPlanCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&file, "file", "f", "Dokkufile.yml", "path to Dokkufile")
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text or json)")
 	return cmd
 }

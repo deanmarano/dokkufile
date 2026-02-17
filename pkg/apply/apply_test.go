@@ -2295,3 +2295,77 @@ func TestSSLCertUploadViaTar(t *testing.T) {
 		t.Error("expected non-empty tar data in stdin")
 	}
 }
+
+func TestAuthProtectedUpdate(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "auth"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Protected: "newfe"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Protected: "oldfe"},
+			},
+		},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("auth:frontend:unprotect", "oldfe", "myapp") {
+		t.Errorf("expected auth:frontend:unprotect oldfe, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:frontend:protect", "newfe", "myapp") {
+		t.Errorf("expected auth:frontend:protect newfe, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateAppWithAuthProtected(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateApp, App: "myapp", NewValue: "nginx"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Directory: "mydir", Protected: "myfe"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("auth:link", "mydir", "myapp") {
+		t.Errorf("expected auth:link mydir, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:frontend:protect", "myfe", "myapp") {
+		t.Errorf("expected auth:frontend:protect myfe, got: %v", runner.commandStrings())
+	}
+}

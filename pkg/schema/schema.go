@@ -260,6 +260,43 @@ func (df *Dokkufile) Validate() error {
 		if app.LetsEncrypt && app.SSL != nil && app.SSL.CertFile != "" {
 			return fmt.Errorf("app %q: letsencrypt and ssl are mutually exclusive", name)
 		}
+		if app.SSL != nil && (app.SSL.CertFile == "") != (app.SSL.KeyFile == "") {
+			return fmt.Errorf("app %q: ssl requires both cert_file and key_file", name)
+		}
+		// Validate service links reference declared services
+		for svcType, svcName := range app.Links {
+			if df.Services != nil {
+				if svc, ok := df.Services[svcName]; ok && svc.Type != svcType {
+					return fmt.Errorf("app %q: link %s=%s has type %q but service %q has type %q", name, svcType, svcName, svcType, svcName, svc.Type)
+				}
+			}
+		}
+		// Validate mail link references a declared mail service
+		if app.Mail != "" && df.MailServices != nil {
+			if _, ok := df.MailServices[app.Mail]; !ok {
+				return fmt.Errorf("app %q: mail %q not found in mail_services", name, app.Mail)
+			}
+		}
+		// Validate auth directory reference
+		if app.Auth != nil && app.Auth.Directory != "" && df.AuthDirectories != nil {
+			if _, ok := df.AuthDirectories[app.Auth.Directory]; !ok {
+				return fmt.Errorf("app %q: auth directory %q not found in auth_directories", name, app.Auth.Directory)
+			}
+		}
+		// Validate auth frontend reference
+		if app.Auth != nil && app.Auth.Protected != "" && df.AuthFrontends != nil {
+			if _, ok := df.AuthFrontends[app.Auth.Protected]; !ok {
+				return fmt.Errorf("app %q: auth frontend %q not found in auth_frontends", name, app.Auth.Protected)
+			}
+		}
+	}
+	// Validate auth frontend directory references
+	for name, fe := range df.AuthFrontends {
+		if fe.Directory != "" && df.AuthDirectories != nil {
+			if _, ok := df.AuthDirectories[fe.Directory]; !ok {
+				return fmt.Errorf("auth frontend %q: directory %q not found in auth_directories", name, fe.Directory)
+			}
+		}
 	}
 	return nil
 }

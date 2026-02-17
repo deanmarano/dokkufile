@@ -168,6 +168,14 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 		}
 	}
 
+	// Build reverse map: app name -> frontend name (for Auth.Protected)
+	appToFrontend := map[string]string{}
+	for feName, fe := range df.AuthFrontends {
+		for _, appName := range fe.ProtectedApps {
+			appToFrontend[appName] = feName
+		}
+	}
+
 	// Read plugins.
 	if out, err := r.Runner.Run("plugin:list"); err == nil {
 		plugins := parsePluginList(out)
@@ -547,6 +555,14 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 				app.Auth.Directory = dirName
 				break
 			}
+		}
+
+		// Auth protected — check if a frontend protects this app
+		if feName, ok := appToFrontend[appName]; ok {
+			if app.Auth == nil {
+				app.Auth = &schema.AuthConfig{}
+			}
+			app.Auth.Protected = feName
 		}
 
 		df.Apps[appName] = app
