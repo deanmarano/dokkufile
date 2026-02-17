@@ -68,7 +68,7 @@ func TestDetectNewApp(t *testing.T) {
 	}
 }
 
-func TestDetectRemovedApp(t *testing.T) {
+func TestUnmanagedAppIgnored(t *testing.T) {
 	desired := &schema.Dokkufile{
 		Version: "1",
 		Apps: map[string]schema.App{
@@ -78,21 +78,17 @@ func TestDetectRemovedApp(t *testing.T) {
 	actual := &schema.Dokkufile{
 		Version: "1",
 		Apps: map[string]schema.App{
-			"myapp":    {Image: "nginx:latest"},
-			"oldapp":   {Image: "redis:6"},
+			"myapp":  {Image: "nginx:latest"},
+			"oldapp": {Image: "redis:6"},
 		},
 	}
 
 	p := Diff(desired, actual)
 
-	found := false
 	for _, s := range p.Steps {
-		if s.App == "oldapp" && s.Action == DestroyApp {
-			found = true
+		if s.App == "oldapp" {
+			t.Errorf("should not generate steps for unmanaged app, got %s", s.Action)
 		}
-	}
-	if !found {
-		t.Error("did not find destroy step for removed app")
 	}
 }
 
@@ -138,7 +134,7 @@ func TestDetectNewService(t *testing.T) {
 	}
 }
 
-func TestDetectRemovedService(t *testing.T) {
+func TestUnmanagedServiceIgnored(t *testing.T) {
 	desired := &schema.Dokkufile{
 		Version: "1",
 	}
@@ -151,17 +147,10 @@ func TestDetectRemovedService(t *testing.T) {
 
 	p := Diff(desired, actual)
 
-	found := false
 	for _, s := range p.Steps {
-		if s.Service == "mydb" && s.Action == DestroyService {
-			found = true
-			if s.ServiceType != "postgres" {
-				t.Errorf("expected ServiceType %q, got %q", "postgres", s.ServiceType)
-			}
+		if s.Service == "mydb" {
+			t.Errorf("should not generate steps for unmanaged service, got %s", s.Action)
 		}
-	}
-	if !found {
-		t.Error("did not find destroy step for removed service")
 	}
 }
 
@@ -627,7 +616,7 @@ func TestDetectMailServiceCreate(t *testing.T) {
 	}
 }
 
-func TestDetectMailServiceDestroy(t *testing.T) {
+func TestUnmanagedMailServiceIgnored(t *testing.T) {
 	desired := &schema.Dokkufile{Version: "1"}
 	actual := &schema.Dokkufile{
 		Version: "1",
@@ -638,14 +627,10 @@ func TestDetectMailServiceDestroy(t *testing.T) {
 
 	p := Diff(desired, actual)
 
-	found := false
 	for _, s := range p.Steps {
-		if s.Service == "mymail" && s.Action == DestroyMailService {
-			found = true
+		if s.Service == "mymail" {
+			t.Errorf("should not generate steps for unmanaged mail service, got %s", s.Action)
 		}
-	}
-	if !found {
-		t.Error("did not find destroy mail service step")
 	}
 }
 
@@ -1089,7 +1074,7 @@ func TestDetectPluginChange(t *testing.T) {
 	}
 }
 
-func TestDetectPluginRemoval(t *testing.T) {
+func TestUnmanagedPluginIgnored(t *testing.T) {
 	desired := &schema.Dokkufile{Version: "1"}
 	actual := &schema.Dokkufile{
 		Version: "1",
@@ -1099,14 +1084,10 @@ func TestDetectPluginRemoval(t *testing.T) {
 	}
 
 	p := Diff(desired, actual)
-	found := false
 	for _, s := range p.Steps {
-		if s.Action == UninstallPlugin && s.Service == "letsencrypt" {
-			found = true
+		if s.Service == "letsencrypt" {
+			t.Errorf("should not generate steps for unmanaged plugin, got %s", s.Action)
 		}
-	}
-	if !found {
-		t.Error("expected uninstall plugin step")
 	}
 }
 

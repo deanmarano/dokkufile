@@ -135,16 +135,6 @@ func diffServices(desired, actual *schema.Dokkufile) []Step {
 		}
 	}
 
-	for name, svc := range actualSvc {
-		if _, exists := desiredSvc[name]; !exists {
-			steps = append(steps, Step{
-				Action:      DestroyService,
-				Service:     name,
-				ServiceType: svc.Type,
-			})
-		}
-	}
-
 	return steps
 }
 
@@ -164,11 +154,6 @@ func diffMailServices(desired, actual *schema.Dokkufile) []Step {
 			steps = append(steps, Step{Action: CreateMailService, Service: name})
 		} else if d.Provider != a.Provider || !mapEqual(d.Config, a.Config) {
 			steps = append(steps, Step{Action: UpdateMailService, Service: name})
-		}
-	}
-	for name := range actualMail {
-		if _, exists := desiredMail[name]; !exists {
-			steps = append(steps, Step{Action: DestroyMailService, Service: name})
 		}
 	}
 	return steps
@@ -192,11 +177,6 @@ func diffAuthDirectories(desired, actual *schema.Dokkufile) []Step {
 			steps = append(steps, Step{Action: UpdateAuthDirectory, Service: name})
 		}
 	}
-	for name := range actualDir {
-		if _, exists := desiredDir[name]; !exists {
-			steps = append(steps, Step{Action: DestroyAuthDirectory, Service: name})
-		}
-	}
 	return steps
 }
 
@@ -216,11 +196,6 @@ func diffAuthFrontends(desired, actual *schema.Dokkufile) []Step {
 			steps = append(steps, Step{Action: CreateAuthFrontend, Service: name})
 		} else if !authFrontendEqual(d, a) {
 			steps = append(steps, Step{Action: UpdateAuthFrontend, Service: name})
-		}
-	}
-	for name := range actualFE {
-		if _, exists := desiredFE[name]; !exists {
-			steps = append(steps, Step{Action: DestroyAuthFrontend, Service: name})
 		}
 	}
 	return steps
@@ -263,11 +238,6 @@ func diffPlugins(desired, actual *schema.Dokkufile) []Step {
 			steps = append(steps, Step{Action: InstallPlugin, Service: name})
 		} else if d.URL != a.URL || d.Committish != a.Committish {
 			steps = append(steps, Step{Action: UpdatePlugin, Service: name})
-		}
-	}
-	for name := range actualPlugins {
-		if _, exists := desiredPlugins[name]; !exists {
-			steps = append(steps, Step{Action: UninstallPlugin, Service: name})
 		}
 	}
 	return steps
@@ -340,16 +310,6 @@ func diffApps(desired, actual *schema.Dokkufile) []Step {
 		// Existing app — diff fields
 		aApp := actualApps[name]
 		steps = append(steps, diffApp(name, dApp, aApp)...)
-	}
-
-	// Removed apps
-	for name := range actualApps {
-		if _, exists := desiredApps[name]; !exists {
-			steps = append(steps, Step{
-				Action: DestroyApp,
-				App:    name,
-			})
-		}
 	}
 
 	return steps
