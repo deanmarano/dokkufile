@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BINARY="$PLUGIN_DIR/dokkufile-bin"
+
+case "$1" in
+  dokkufile:plan)
+    shift
+    exec "$BINARY" plan "$@"
+    ;;
+  dokkufile:apply)
+    shift
+    exec "$BINARY" apply "$@"
+    ;;
+  dokkufile:inspect)
+    shift
+    exec "$BINARY" inspect "$@"
+    ;;
+  dokkufile:import)
+    shift
+    exec "$BINARY" import "$@"
+    ;;
+  dokkufile:help)
+    cat <<EOF
+    dokkufile:plan, Show execution plan for a Dokkufile
+    dokkufile:apply, Apply a Dokkufile to the server
+    dokkufile:inspect, Inspect current Dokku state
+    dokkufile:import, Import existing Dokku state as a Dokkufile
+EOF
+    ;;
+  dokkufile)
+    shift
+    exec "$BINARY" "$@"
+    ;;
+  help)
+    cat <<EOF
+    dokkufile, Infrastructure as Code for Dokku
+EOF
+    ;;
+  *)
+    exit "$DOKKU_NOT_IMPLEMENTED_EXIT"
+    ;;
+esac
