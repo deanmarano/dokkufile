@@ -1655,3 +1655,98 @@ func TestUninstallPlugin(t *testing.T) {
 		t.Errorf("expected plugin:uninstall, got: %v", runner.commandStrings())
 	}
 }
+
+func TestUpdateProxyWithCaddy(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "proxy"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Proxy: &schema.ProxyConfig{
+					Enabled: true,
+					Type:    "caddy",
+					Caddy: map[string]string{
+						"tls-internal":     "true",
+						"letsencrypt-email": "admin@example.com",
+					},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("proxy:enable", "myapp") {
+		t.Errorf("expected proxy:enable, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("proxy:set", "myapp", "caddy") {
+		t.Errorf("expected proxy:set caddy, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("caddy:set", "myapp", "tls-internal", "true") {
+		t.Errorf("expected caddy:set tls-internal, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("caddy:set", "myapp", "letsencrypt-email", "admin@example.com") {
+		t.Errorf("expected caddy:set letsencrypt-email, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateProxyWithTraefik(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "proxy"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Proxy: &schema.ProxyConfig{
+					Enabled: true,
+					Type:    "traefik",
+					Traefik: map[string]string{
+						"api-enabled": "true",
+						"log-level":   "DEBUG",
+					},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("proxy:set", "myapp", "traefik") {
+		t.Errorf("expected proxy:set traefik, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("traefik:set", "myapp", "api-enabled", "true") {
+		t.Errorf("expected traefik:set api-enabled, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("traefik:set", "myapp", "log-level", "DEBUG") {
+		t.Errorf("expected traefik:set log-level, got: %v", runner.commandStrings())
+	}
+}

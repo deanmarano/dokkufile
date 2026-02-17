@@ -428,6 +428,18 @@ func proxyConfigCommands(appName string, proxy *schema.ProxyConfig) [][]string {
 	if proxy.Type != "" {
 		cmds = append(cmds, []string{"proxy:set", appName, proxy.Type})
 	}
+	// Caddy properties
+	for _, k := range sortedKeys(proxy.Caddy) {
+		cmds = append(cmds, []string{"caddy:set", appName, k, proxy.Caddy[k]})
+	}
+	// HAProxy properties
+	for _, k := range sortedKeys(proxy.HAProxy) {
+		cmds = append(cmds, []string{"haproxy:set", appName, k, proxy.HAProxy[k]})
+	}
+	// Traefik properties
+	for _, k := range sortedKeys(proxy.Traefik) {
+		cmds = append(cmds, []string{"traefik:set", appName, k, proxy.Traefik[k]})
+	}
 	return cmds
 }
 

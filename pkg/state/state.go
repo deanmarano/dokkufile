@@ -306,6 +306,39 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			}
 		}
 
+		// Caddy proxy properties
+		if out, err := r.Runner.Run("caddy:report", appName); err == nil {
+			props := parseProxyProperties(out, "Caddy", caddyPropertyNames)
+			if len(props) > 0 {
+				if app.Proxy == nil {
+					app.Proxy = &schema.ProxyConfig{}
+				}
+				app.Proxy.Caddy = props
+			}
+		}
+
+		// HAProxy proxy properties
+		if out, err := r.Runner.Run("haproxy:report", appName); err == nil {
+			props := parseProxyProperties(out, "Haproxy", haproxyPropertyNames)
+			if len(props) > 0 {
+				if app.Proxy == nil {
+					app.Proxy = &schema.ProxyConfig{}
+				}
+				app.Proxy.HAProxy = props
+			}
+		}
+
+		// Traefik proxy properties
+		if out, err := r.Runner.Run("traefik:report", appName); err == nil {
+			props := parseProxyProperties(out, "Traefik", traefikPropertyNames)
+			if len(props) > 0 {
+				if app.Proxy == nil {
+					app.Proxy = &schema.ProxyConfig{}
+				}
+				app.Proxy.Traefik = props
+			}
+		}
+
 		// SSL certs
 		if out, err := r.Runner.Run("certs:report", appName); err == nil {
 			sslPresent := parseReportField(out, "Ssl cert present")

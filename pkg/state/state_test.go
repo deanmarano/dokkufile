@@ -1145,15 +1145,23 @@ func TestParsePluginList(t *testing.T) {
   disabled-plugin      1.0.0     disabled   A disabled plugin
 `
 	got := parsePluginList(input)
-	// All enabled plugins should be listed
-	if _, ok := got["00_dokku-standard"]; !ok {
-		t.Error("expected 00_dokku-standard in plugins")
+	// Core plugins (with "dokku core" in description) should be filtered out
+	if _, ok := got["00_dokku-standard"]; ok {
+		t.Error("core plugin 00_dokku-standard should be filtered out")
 	}
+	if _, ok := got["app-json"]; ok {
+		t.Error("core plugin app-json should be filtered out")
+	}
+	// Non-core enabled plugins should be included
 	if _, ok := got["letsencrypt"]; !ok {
 		t.Error("expected letsencrypt in plugins")
 	}
+	// Disabled plugins should be excluded
 	if _, ok := got["disabled-plugin"]; ok {
 		t.Error("disabled-plugin should not be in plugins")
+	}
+	if len(got) != 1 {
+		t.Errorf("expected 1 plugin, got %d: %v", len(got), got)
 	}
 }
 
@@ -1270,6 +1278,40 @@ func TestDokkuReaderLogsAndScheduler(t *testing.T) {
 	}
 	if app.Builder.DockerfilePath != "Dockerfile.prod" {
 		t.Errorf("Builder.DockerfilePath = %q, want Dockerfile.prod", app.Builder.DockerfilePath)
+	}
+}
+
+func TestParseProxyProperties(t *testing.T) {
+	input := `       Caddy tls internal:         true
+       Caddy image:                caddy:2
+       Caddy log level:            INFO
+`
+	got := parseProxyProperties(input, "Caddy", caddyPropertyNames)
+	if got["tls-internal"] != "true" {
+		t.Errorf("tls-internal = %q, want true", got["tls-internal"])
+	}
+	if got["image"] != "caddy:2" {
+		t.Errorf("image = %q, want caddy:2", got["image"])
+	}
+	if got["log-level"] != "INFO" {
+		t.Errorf("log-level = %q, want INFO", got["log-level"])
+	}
+}
+
+func TestParseTraefikProperties(t *testing.T) {
+	input := `       Traefik api enabled:        true
+       Traefik letsencrypt email:  admin@example.com
+       Traefik log level:          DEBUG
+`
+	got := parseProxyProperties(input, "Traefik", traefikPropertyNames)
+	if got["api-enabled"] != "true" {
+		t.Errorf("api-enabled = %q, want true", got["api-enabled"])
+	}
+	if got["letsencrypt-email"] != "admin@example.com" {
+		t.Errorf("letsencrypt-email = %q", got["letsencrypt-email"])
+	}
+	if got["log-level"] != "DEBUG" {
+		t.Errorf("log-level = %q, want DEBUG", got["log-level"])
 	}
 }
 

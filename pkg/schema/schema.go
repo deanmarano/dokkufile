@@ -103,8 +103,11 @@ type NginxConfig struct {
 
 // ProxyConfig holds proxy settings for an app.
 type ProxyConfig struct {
-	Enabled bool   `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	Type    string `yaml:"type,omitempty" json:"type,omitempty"`
+	Enabled bool              `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Type    string            `yaml:"type,omitempty" json:"type,omitempty"`
+	Caddy   map[string]string `yaml:"caddy,omitempty" json:"caddy,omitempty"`
+	HAProxy map[string]string `yaml:"haproxy,omitempty" json:"haproxy,omitempty"`
+	Traefik map[string]string `yaml:"traefik,omitempty" json:"traefik,omitempty"`
 }
 
 // SSLConfig holds custom SSL certificate settings for an app.

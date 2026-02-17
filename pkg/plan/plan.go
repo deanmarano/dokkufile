@@ -638,7 +638,11 @@ func proxyConfigEqual(a, b *schema.ProxyConfig) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return *a == *b
+	return a.Enabled == b.Enabled &&
+		a.Type == b.Type &&
+		mapEqual(a.Caddy, b.Caddy) &&
+		mapEqual(a.HAProxy, b.HAProxy) &&
+		mapEqual(a.Traefik, b.Traefik)
 }
 
 func sslConfigEqual(a, b *schema.SSLConfig) bool {

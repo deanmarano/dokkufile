@@ -267,6 +267,55 @@ func parseNginxProperties(output string) map[string]string {
 	return result
 }
 
+// caddyPropertyNames lists known caddy proxy properties.
+var caddyPropertyNames = []string{
+	"image",
+	"log-level",
+	"letsencrypt-email",
+	"letsencrypt-server",
+	"polling-interval",
+	"tls-internal",
+}
+
+// haproxyPropertyNames lists known haproxy proxy properties.
+var haproxyPropertyNames = []string{
+	"image",
+	"log-level",
+	"letsencrypt-email",
+	"letsencrypt-server",
+}
+
+// traefikPropertyNames lists known traefik proxy properties.
+var traefikPropertyNames = []string{
+	"api-enabled",
+	"api-vhost",
+	"basic-auth-username",
+	"basic-auth-password",
+	"challenge-mode",
+	"dashboard-enabled",
+	"dns-provider",
+	"http-entry-point",
+	"https-entry-point",
+	"image",
+	"letsencrypt-email",
+	"letsencrypt-server",
+	"log-level",
+}
+
+// parseProxyProperties extracts proxy-specific properties from a report output.
+// prefix is the report field prefix (e.g. "Caddy", "Haproxy", "Traefik").
+func parseProxyProperties(output, prefix string, propertyNames []string) map[string]string {
+	result := map[string]string{}
+	for _, prop := range propertyNames {
+		fieldName := prefix + " " + strings.ReplaceAll(prop, "-", " ")
+		val := parseReportField(output, fieldName)
+		if val != "" {
+			result[prop] = val
+		}
+	}
+	return result
+}
+
 // parseBuildpacksList parses buildpacks:list output into a list of buildpack URLs.
 // Output format has lines like "  1. https://github.com/heroku/heroku-buildpack-nodejs"
 func parseBuildpacksList(output string) []string {
@@ -290,8 +339,8 @@ func parseBuildpacksList(output string) []string {
 }
 
 // parsePluginList parses plugin:list output into a map of plugin name -> Plugin.
-// Only includes non-core plugins (installed from URLs).
-// Output format: "  pluginname    version   enabled    description"
+// Only includes non-core plugins (filters out plugins with "dokku core" in description).
+// Output format: "  pluginname    version   enabled    description words here"
 func parsePluginList(output string) map[string]schema.Plugin {
 	result := map[string]schema.Plugin{}
 	for _, line := range strings.Split(output, "\n") {
@@ -300,18 +349,21 @@ func parsePluginList(output string) map[string]schema.Plugin {
 			continue
 		}
 		fields := strings.Fields(trimmed)
-		if len(fields) < 3 {
+		if len(fields) < 4 {
 			continue
 		}
 		name := fields[0]
 		enabled := fields[2]
-		// Skip disabled plugins and core plugins (we can't distinguish core from
-		// non-core in the list output, so we include all enabled non-empty plugins)
+		// Rejoin the description (everything after enabled/disabled field)
+		description := strings.Join(fields[3:], " ")
+
 		if enabled != "enabled" {
 			continue
 		}
-		// Core plugins are built-in; we only track plugins that have been installed.
-		// We'll store them with an empty URL — the URL isn't available from plugin:list.
+		// Skip core plugins — their descriptions contain "dokku core"
+		if strings.Contains(strings.ToLower(description), "dokku core") {
+			continue
+		}
 		result[name] = schema.Plugin{}
 	}
 	return result

@@ -1109,3 +1109,63 @@ func TestDetectPluginRemoval(t *testing.T) {
 		t.Error("expected uninstall plugin step")
 	}
 }
+
+func TestDetectProxyPropertyChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Proxy: &schema.ProxyConfig{
+					Enabled: true,
+					Type:    "caddy",
+					Caddy:   map[string]string{"tls-internal": "true"},
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Proxy: &schema.ProxyConfig{
+					Enabled: true,
+					Type:    "caddy",
+				},
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Field == "proxy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected proxy update step for caddy property change")
+	}
+}
+
+func TestNoChangeProxySame(t *testing.T) {
+	state := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Proxy: &schema.ProxyConfig{
+					Enabled: true,
+					Type:    "traefik",
+					Traefik: map[string]string{"log-level": "DEBUG"},
+				},
+			},
+		},
+	}
+
+	p := Diff(state, state)
+	if len(p.Steps) != 0 {
+		t.Errorf("expected no steps, got %d: %v", len(p.Steps), p.String())
+	}
+}
