@@ -1,14 +1,19 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/deanmarano/dokkufile/pkg/schema"
 )
+
+// commandTimeout is the maximum time to wait for a single dokku command.
+const commandTimeout = 30 * time.Second
 
 // CommandRunner abstracts command execution so tests can use fakes.
 type CommandRunner interface {
@@ -31,13 +36,17 @@ type FileRunner interface {
 type ExecRunner struct{}
 
 func (r *ExecRunner) Run(args ...string) (string, error) {
-	cmd := exec.Command("dokku", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "dokku", args...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
 func (r *ExecRunner) RunWithStdin(stdin io.Reader, args ...string) (string, error) {
-	cmd := exec.Command("dokku", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "dokku", args...)
 	cmd.Stdin = stdin
 	out, err := cmd.CombinedOutput()
 	return string(out), err

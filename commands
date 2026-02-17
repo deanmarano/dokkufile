@@ -34,7 +34,7 @@ case "$1" in
     cat <<EOF
     dokkufile:plan, Show execution plan for a Dokkufile
     dokkufile:apply, Apply a Dokkufile to the server
-    dokkufile:inspect, Inspect current Dokku state
+    dokkufile:inspect <app>, Inspect an app (or --global for all apps)
     dokkufile:import, Import existing Dokku state as a Dokkufile
     dokkufile:validate, Validate a Dokkufile without connecting to the server
     dokkufile:version, Print version information

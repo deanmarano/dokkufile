@@ -12,12 +12,18 @@ import (
 
 func NewInspectCmd() *cobra.Command {
 	var format string
-	var appName string
+	var global bool
 
 	cmd := &cobra.Command{
-		Use:   "inspect",
+		Use:   "inspect [app]",
 		Short: "Dump live server state as a Dokkufile",
+		Long:  "Inspect a single app (default) or all apps with --global.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 && !global {
+				return fmt.Errorf("specify an app name or use --global to inspect all apps")
+			}
+
 			reader := &state.DokkuReader{
 				Runner:     &state.ExecRunner{},
 				FileRunner: &state.ExecFileRunner{},
@@ -27,11 +33,11 @@ func NewInspectCmd() *cobra.Command {
 				return fmt.Errorf("reading live state: %w", err)
 			}
 
-			// Filter to a single app if requested
-			if appName != "" {
-				actual = filterByApp(actual, appName)
+			// Filter to a single app unless --global
+			if !global && len(args) > 0 {
+				actual = filterByApp(actual, args[0])
 				if len(actual.Apps) == 0 {
-					return fmt.Errorf("app %q not found on server", appName)
+					return fmt.Errorf("app %q not found on server", args[0])
 				}
 			}
 
@@ -55,7 +61,7 @@ func NewInspectCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&format, "format", "yaml", "output format (yaml or json)")
-	cmd.Flags().StringVar(&appName, "app", "", "filter output to a single app")
+	cmd.Flags().BoolVar(&global, "global", false, "inspect all apps on the server")
 	return cmd
 }
 
