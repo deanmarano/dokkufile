@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+case "$(uname -m)" in
+  x86_64)  ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+  *)
+    echo "dokkufile: unsupported architecture $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+URL="https://github.com/deanmarano/dokkufile/releases/download/latest/dokkufile-linux-${ARCH}"
+
+echo "dokkufile: downloading binary for linux/${ARCH}..."
+curl -fsSL -o "$PLUGIN_DIR/dokkufile-bin" "$URL"
+chmod +x "$PLUGIN_DIR/dokkufile-bin"
+chown dokku:dokku "$PLUGIN_DIR/dokkufile-bin"
+echo "dokkufile: installed successfully"
