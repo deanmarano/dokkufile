@@ -247,11 +247,10 @@ func diffGlobal(desired, actual *schema.Dokkufile) []Step {
 	var steps []Step
 	dg := desired.Global
 	ag := actual.Global
-	if dg == nil && ag == nil {
-		return nil
-	}
+	// If no global section in desired dokkufile, skip global diff entirely.
+	// Global config should only be managed when explicitly declared.
 	if dg == nil {
-		dg = &schema.GlobalConfig{}
+		return nil
 	}
 	if ag == nil {
 		ag = &schema.GlobalConfig{}
@@ -338,7 +337,9 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
-	if !envEqual(desired.Env, actual.Env, desired.Secrets) {
+	// Only diff env if the dokkufile explicitly declares an env section.
+	// nil means "unmanaged" (don't touch), empty map means "clear all".
+	if desired.Env != nil && !envEqual(desired.Env, actual.Env, desired.Secrets) {
 		steps = append(steps, Step{
 			Action: UpdateApp,
 			App:    name,
