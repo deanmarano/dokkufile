@@ -13,12 +13,26 @@ import (
 // Dokkufile is the top-level configuration structure.
 type Dokkufile struct {
 	Version         string                       `yaml:"version" json:"version"`
+	Global          *GlobalConfig                `yaml:"global,omitempty" json:"global,omitempty"`
 	Services        map[string]Service           `yaml:"services,omitempty" json:"services,omitempty"`
 	Apps            map[string]App               `yaml:"apps,omitempty" json:"apps,omitempty"`
 	MailServices    map[string]MailService        `yaml:"mail_services,omitempty" json:"mail_services,omitempty"`
 	AuthDirectories map[string]AuthDirectory     `yaml:"auth_directories,omitempty" json:"auth_directories,omitempty"`
 	AuthFrontends   map[string]AuthFrontend      `yaml:"auth_frontends,omitempty" json:"auth_frontends,omitempty"`
 	Plugins         map[string]Plugin            `yaml:"plugins,omitempty" json:"plugins,omitempty"`
+}
+
+// GlobalConfig holds server-wide default settings.
+// These are applied via --global flag and serve as defaults for all apps.
+type GlobalConfig struct {
+	Domains   []string         `yaml:"domains,omitempty" json:"domains,omitempty"`
+	Nginx     *NginxConfig     `yaml:"nginx,omitempty" json:"nginx,omitempty"`
+	Proxy     *ProxyConfig     `yaml:"proxy,omitempty" json:"proxy,omitempty"`
+	Network   *NetworkConfig   `yaml:"network,omitempty" json:"network,omitempty"`
+	Builder   *BuilderConfig   `yaml:"builder,omitempty" json:"builder,omitempty"`
+	Registry  *RegistryConfig  `yaml:"registry,omitempty" json:"registry,omitempty"`
+	Logs      *LogConfig       `yaml:"logs,omitempty" json:"logs,omitempty"`
+	Scheduler *SchedulerConfig `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 }
 
 // Plugin represents a dokku plugin to install.
@@ -36,7 +50,6 @@ type Service struct {
 type App struct {
 	Image         string            `yaml:"image,omitempty" json:"image,omitempty"`
 	Git           *GitConfig        `yaml:"git,omitempty" json:"git,omitempty"`
-	Library       string            `yaml:"library,omitempty" json:"library,omitempty"`
 	Domains       []string          `yaml:"domains,omitempty" json:"domains,omitempty"`
 	Ports         map[string]string `yaml:"ports,omitempty" json:"ports,omitempty"`
 	Env           map[string]string `yaml:"env,omitempty" json:"env,omitempty"`

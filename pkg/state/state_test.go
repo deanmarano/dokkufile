@@ -1315,6 +1315,52 @@ func TestParseTraefikProperties(t *testing.T) {
 	}
 }
 
+func TestDokkuReaderMailLink(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			"[apps:list]":                              {Output: "=====> My Apps\nmyapp"},
+			"[git:report myapp --git-source-image]":    {Output: ""},
+			"[mail:list]":                              {Output: "NAME  VERSION  STATUS\nmymail  1.0  running"},
+			"[mail:linked mymail myapp]":               {Output: ""},
+			"[auth:list]":                              {Err: fmt.Errorf("not installed")},
+		},
+	}
+
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+
+	app := df.Apps["myapp"]
+	if app.Mail != "mymail" {
+		t.Errorf("expected Mail=mymail, got %q", app.Mail)
+	}
+}
+
+func TestDokkuReaderAuthLink(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			"[apps:list]":                              {Output: "=====> My Apps\nmyapp"},
+			"[git:report myapp --git-source-image]":    {Output: ""},
+			"[mail:list]":                              {Err: fmt.Errorf("not installed")},
+			"[auth:list]":                              {Output: "NAME  VERSION  STATUS\nmydir  1.0  running"},
+			"[auth:linked mydir myapp]":                {Output: ""},
+		},
+	}
+
+	reader := &DokkuReader{Runner: fake}
+	df, err := reader.Read()
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+
+	app := df.Apps["myapp"]
+	if app.Auth == nil || app.Auth.Directory != "mydir" {
+		t.Errorf("expected Auth.Directory=mydir, got %v", app.Auth)
+	}
+}
+
 // Verify that the Reader interface is satisfied.
 var _ Reader = (*DokkuReader)(nil)
 // Verify the unused import is used

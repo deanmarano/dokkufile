@@ -29,6 +29,7 @@ const (
 	InstallPlugin       Action = "install_plugin"
 	UninstallPlugin     Action = "uninstall_plugin"
 	UpdatePlugin        Action = "update_plugin"
+	UpdateGlobal        Action = "update_global"
 )
 
 // Step is a single planned change.
@@ -89,6 +90,8 @@ func (p *Plan) String() string {
 			fmt.Fprintf(&b, "- plugin %q\n", s.Service)
 		case UpdatePlugin:
 			fmt.Fprintf(&b, "~ plugin %q\n", s.Service)
+		case UpdateGlobal:
+			fmt.Fprintf(&b, "~ global: %s\n", s.Field)
 		}
 	}
 	return b.String()
@@ -104,6 +107,7 @@ func Diff(desired, actual *schema.Dokkufile) *Plan {
 	steps = append(steps, diffAuthFrontends(desired, actual)...)
 	steps = append(steps, diffPlugins(desired, actual)...)
 	// Plugins should be installed before apps that may depend on them
+	steps = append(steps, diffGlobal(desired, actual)...)
 	steps = append(steps, diffApps(desired, actual)...)
 
 	return &Plan{Steps: steps}
@@ -269,6 +273,48 @@ func diffPlugins(desired, actual *schema.Dokkufile) []Step {
 	return steps
 }
 
+func diffGlobal(desired, actual *schema.Dokkufile) []Step {
+	var steps []Step
+	dg := desired.Global
+	ag := actual.Global
+	if dg == nil && ag == nil {
+		return nil
+	}
+	if dg == nil {
+		dg = &schema.GlobalConfig{}
+	}
+	if ag == nil {
+		ag = &schema.GlobalConfig{}
+	}
+
+	if !sliceEqual(dg.Domains, ag.Domains) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "domains"})
+	}
+	if !nginxConfigEqual(dg.Nginx, ag.Nginx) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "nginx"})
+	}
+	if !proxyConfigEqual(dg.Proxy, ag.Proxy) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "proxy"})
+	}
+	if !networkConfigEqual(dg.Network, ag.Network) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "network"})
+	}
+	if !builderEqual(dg.Builder, ag.Builder) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "builder"})
+	}
+	if !registryEqual(dg.Registry, ag.Registry) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "registry"})
+	}
+	if !logConfigEqual(dg.Logs, ag.Logs) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "logs"})
+	}
+	if !schedulerConfigEqual(dg.Scheduler, ag.Scheduler) {
+		steps = append(steps, Step{Action: UpdateGlobal, Field: "scheduler"})
+	}
+
+	return steps
+}
+
 func diffApps(desired, actual *schema.Dokkufile) []Step {
 	var steps []Step
 	desiredApps := desired.Apps
@@ -332,11 +378,19 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
-	if !mapEqual(desired.Env, actual.Env) {
+	if !envEqual(desired.Env, actual.Env, desired.Secrets) {
 		steps = append(steps, Step{
 			Action: UpdateApp,
 			App:    name,
 			Field:  "env",
+		})
+	}
+
+	if !sliceEqual(desired.Secrets, actual.Secrets) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "secrets",
 		})
 	}
 
@@ -423,6 +477,26 @@ func diffApp(name string, desired, actual schema.App) []Step {
 			Action: UpdateApp,
 			App:    name,
 			Field:  "proxy",
+		})
+	}
+
+	// Mail link
+	if desired.Mail != actual.Mail {
+		steps = append(steps, Step{
+			Action:   UpdateApp,
+			App:      name,
+			Field:    "mail",
+			OldValue: actual.Mail,
+			NewValue: desired.Mail,
+		})
+	}
+
+	// Auth config
+	if !authConfigEqual(desired.Auth, actual.Auth) {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "auth",
 		})
 	}
 
@@ -645,6 +719,16 @@ func proxyConfigEqual(a, b *schema.ProxyConfig) bool {
 		mapEqual(a.Traefik, b.Traefik)
 }
 
+func authConfigEqual(a, b *schema.AuthConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Directory == b.Directory && a.Protected == b.Protected
+}
+
 func sslConfigEqual(a, b *schema.SSLConfig) bool {
 	if a == nil && b == nil {
 		return true
@@ -778,6 +862,48 @@ func schedulerConfigEqual(a, b *schema.SchedulerConfig) bool {
 		return false
 	}
 	return *a == *b
+}
+
+// envEqual compares env maps, excluding keys that are in the secrets list.
+// Secret env vars are managed separately via the secrets mechanism, so
+// we don't flag them as env drift.
+func envEqual(desired, actual map[string]string, secrets []string) bool {
+	secretSet := map[string]bool{}
+	for _, s := range secrets {
+		secretSet[s] = true
+	}
+	// Count non-secret keys in each
+	dCount, aCount := 0, 0
+	for k := range desired {
+		if !secretSet[k] {
+			dCount++
+		}
+	}
+	for k := range actual {
+		if !secretSet[k] {
+			aCount++
+		}
+	}
+	if dCount != aCount {
+		return false
+	}
+	for k, v := range desired {
+		if secretSet[k] {
+			continue
+		}
+		if actual[k] != v {
+			return false
+		}
+	}
+	for k := range actual {
+		if secretSet[k] {
+			continue
+		}
+		if _, ok := desired[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func buildpacksEqual(a, b []string) bool {

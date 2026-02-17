@@ -12,6 +12,7 @@ import (
 
 func NewApplyCmd() *cobra.Command {
 	var file string
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:   "apply",
@@ -39,11 +40,12 @@ func NewApplyCmd() *cobra.Command {
 			fmt.Print(p.String())
 			fmt.Println()
 
-			executor := &apply.Executor{Runner: runner, FileRunner: fileRunner}
+			executor := &apply.Executor{Runner: runner, FileRunner: fileRunner, DryRun: dryRun}
 			return executor.Execute(p, desired, actual)
 		},
 	}
 
 	cmd.Flags().StringVarP(&file, "file", "f", "Dokkufile.yml", "path to Dokkufile")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print commands without executing them")
 	return cmd
 }

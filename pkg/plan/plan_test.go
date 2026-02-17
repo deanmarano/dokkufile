@@ -1169,3 +1169,274 @@ func TestNoChangeProxySame(t *testing.T) {
 		t.Errorf("expected no steps, got %d: %v", len(p.Steps), p.String())
 	}
 }
+
+func TestDetectGlobalDomainChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Domains: []string{"example.com", "example.org"},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Domains: []string{"example.com"},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == UpdateGlobal && s.Field == "domains" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected UpdateGlobal domains step")
+	}
+}
+
+func TestDetectGlobalNginxChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Nginx: &schema.NginxConfig{HSTS: true, HSTSMaxAge: 31536000},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Nginx: &schema.NginxConfig{HSTS: false},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == UpdateGlobal && s.Field == "nginx" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected UpdateGlobal nginx step")
+	}
+}
+
+func TestDetectGlobalLogsChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Logs: &schema.LogConfig{MaxSize: "10m"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == UpdateGlobal && s.Field == "logs" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected UpdateGlobal logs step")
+	}
+}
+
+func TestNoChangeGlobalSame(t *testing.T) {
+	state := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Domains: []string{"example.com"},
+			Nginx:   &schema.NginxConfig{HSTS: true},
+			Logs:    &schema.LogConfig{MaxSize: "10m"},
+		},
+	}
+
+	p := Diff(state, state)
+	for _, s := range p.Steps {
+		if s.Action == UpdateGlobal {
+			t.Errorf("expected no global steps, got: %s", s.Field)
+		}
+	}
+}
+
+func TestNoChangeGlobalBothNil(t *testing.T) {
+	state := &schema.Dokkufile{Version: "1"}
+	p := Diff(state, state)
+	for _, s := range p.Steps {
+		if s.Action == UpdateGlobal {
+			t.Errorf("expected no global steps, got: %s", s.Field)
+		}
+	}
+}
+
+func TestDetectSecretsChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx",
+				Secrets: []string{"DATABASE_URL", "API_KEY"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx",
+				Secrets: []string{"DATABASE_URL"},
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == UpdateApp && s.Field == "secrets" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected secrets update step")
+	}
+}
+
+func TestEnvEqualExcludesSecrets(t *testing.T) {
+	// Env differs only on a secret key — should be considered equal
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx",
+				Env:     map[string]string{"APP_NAME": "myapp"},
+				Secrets: []string{"DATABASE_URL"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Env:   map[string]string{"APP_NAME": "myapp", "DATABASE_URL": "postgres://..."},
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+	for _, s := range p.Steps {
+		if s.Action == UpdateApp && s.Field == "env" {
+			t.Error("expected no env update — secret key should be excluded from comparison")
+		}
+	}
+}
+
+func TestUpdateGlobalString(t *testing.T) {
+	p := &Plan{
+		Steps: []Step{
+			{Action: UpdateGlobal, Field: "domains"},
+		},
+	}
+	s := p.String()
+	if s == "" || s == "No changes needed." {
+		t.Error("expected non-empty plan string for UpdateGlobal")
+	}
+}
+
+func TestDetectMailLinkChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Mail: "newmail"},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Mail: "oldmail"},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == UpdateApp && s.Field == "mail" {
+			found = true
+			if s.OldValue != "oldmail" || s.NewValue != "newmail" {
+				t.Errorf("unexpected mail values: old=%q new=%q", s.OldValue, s.NewValue)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected mail update step")
+	}
+}
+
+func TestDetectAuthChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Directory: "newdir"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Directory: "olddir"},
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+	found := false
+	for _, s := range p.Steps {
+		if s.Action == UpdateApp && s.Field == "auth" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected auth update step")
+	}
+}
+
+func TestNoChangeMailSame(t *testing.T) {
+	state := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Mail: "mymail"},
+		},
+	}
+
+	p := Diff(state, state)
+	for _, s := range p.Steps {
+		if s.Action == UpdateApp && s.Field == "mail" {
+			t.Error("expected no mail update step")
+		}
+	}
+}
+
+func TestNoChangeAuthSame(t *testing.T) {
+	state := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Directory: "mydir", Protected: "myfe"},
+			},
+		},
+	}
+
+	p := Diff(state, state)
+	for _, s := range p.Steps {
+		if s.Action == UpdateApp && s.Field == "auth" {
+			t.Error("expected no auth update step")
+		}
+	}
+}

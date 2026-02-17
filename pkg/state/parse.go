@@ -253,6 +253,19 @@ var nginxPropertyNames = []string{
 	"x-forwarded-ssl",
 }
 
+// parseGlobalNginxProperties extracts non-HSTS nginx properties from global nginx:report output.
+func parseGlobalNginxProperties(output string) map[string]string {
+	result := map[string]string{}
+	for _, prop := range nginxPropertyNames {
+		fieldName := "Nginx global " + strings.ReplaceAll(prop, "-", " ")
+		val := parseReportField(output, fieldName)
+		if val != "" {
+			result[prop] = val
+		}
+	}
+	return result
+}
+
 // parseNginxProperties extracts non-HSTS nginx properties from nginx:report output.
 func parseNginxProperties(output string) map[string]string {
 	result := map[string]string{}

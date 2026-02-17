@@ -2,6 +2,8 @@ package apply
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -1748,5 +1750,548 @@ func TestUpdateProxyWithTraefik(t *testing.T) {
 	}
 	if !runner.hasCommand("traefik:set", "myapp", "log-level", "DEBUG") {
 		t.Errorf("expected traefik:set log-level, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalDomains(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "domains"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Domains: []string{"example.com", "example.org"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("domains:set", "--global", "example.com", "example.org") {
+		t.Errorf("expected domains:set --global, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalNginx(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "nginx"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Nginx: &schema.NginxConfig{
+				HSTS:       true,
+				HSTSMaxAge: 31536000,
+				Properties: map[string]string{"client-max-body-size": "50m"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("nginx:set", "--global", "hsts", "true") {
+		t.Errorf("expected nginx:set --global hsts true, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("nginx:set", "--global", "hsts-max-age", "31536000") {
+		t.Errorf("expected nginx:set --global hsts-max-age, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("nginx:set", "--global", "client-max-body-size", "50m") {
+		t.Errorf("expected nginx:set --global client-max-body-size, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalLogs(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "logs"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Logs: &schema.LogConfig{MaxSize: "10m", VectorSink: "console://"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("logs:set", "--global", "max-size", "10m") {
+		t.Errorf("expected logs:set --global max-size, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("logs:set", "--global", "vector-sink", "console://") {
+		t.Errorf("expected logs:set --global vector-sink, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalNetwork(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "network"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Network: &schema.NetworkConfig{InitialNetwork: "bridge", TLD: "dokku.me"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("network:set", "--global", "initial-network", "bridge") {
+		t.Errorf("expected network:set --global initial-network, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("network:set", "--global", "tld", "dokku.me") {
+		t.Errorf("expected network:set --global tld, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalBuilder(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "builder"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Builder: &schema.BuilderConfig{Selected: "pack"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("builder:set", "--global", "selected", "pack") {
+		t.Errorf("expected builder:set --global selected, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalScheduler(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "scheduler"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Scheduler: &schema.SchedulerConfig{Selected: "docker-local"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("scheduler:set", "--global", "selected", "docker-local") {
+		t.Errorf("expected scheduler:set --global selected, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalRegistry(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "registry"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Registry: &schema.RegistryConfig{Server: "docker.io", PushOnRelease: true},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("registry:set", "--global", "server", "docker.io") {
+		t.Errorf("expected registry:set --global server, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("registry:set", "--global", "push-on-release", "true") {
+		t.Errorf("expected registry:set --global push-on-release, got: %v", runner.commandStrings())
+	}
+}
+
+func TestSecretsApply(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{
+		Runner: runner,
+		EnvGetter: func(key string) string {
+			switch key {
+			case "DATABASE_URL":
+				return "postgres://localhost/mydb"
+			case "API_KEY":
+				return "secret123"
+			default:
+				return ""
+			}
+		},
+	}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "secrets"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx",
+				Secrets: []string{"DATABASE_URL", "API_KEY"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps:    map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	// Should have a config:set with both secrets
+	found := false
+	for _, cmd := range runner.Commands {
+		if len(cmd) >= 4 && cmd[0] == "config:set" && cmd[1] == "--no-restart" && cmd[2] == "myapp" {
+			found = true
+			cmdStr := strings.Join(cmd, " ")
+			if !strings.Contains(cmdStr, "DATABASE_URL=postgres://localhost/mydb") {
+				t.Errorf("expected DATABASE_URL in config:set, got: %s", cmdStr)
+			}
+			if !strings.Contains(cmdStr, "API_KEY=secret123") {
+				t.Errorf("expected API_KEY in config:set, got: %s", cmdStr)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected config:set command for secrets, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateAppWithSecrets(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{
+		Runner: runner,
+		EnvGetter: func(key string) string {
+			if key == "SECRET_KEY" {
+				return "mysecretvalue"
+			}
+			return ""
+		},
+	}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateApp, App: "myapp", NewValue: "nginx"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx",
+				Env:     map[string]string{"APP_NAME": "myapp"},
+				Secrets: []string{"SECRET_KEY"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	// Should have two config:set commands: one for env, one for secrets
+	configSetCount := 0
+	hasSecretSet := false
+	for _, cmd := range runner.Commands {
+		if len(cmd) >= 3 && cmd[0] == "config:set" {
+			configSetCount++
+			cmdStr := strings.Join(cmd, " ")
+			if strings.Contains(cmdStr, "SECRET_KEY=mysecretvalue") {
+				hasSecretSet = true
+			}
+		}
+	}
+	if configSetCount < 2 {
+		t.Errorf("expected at least 2 config:set commands (env + secrets), got %d: %v", configSetCount, runner.commandStrings())
+	}
+	if !hasSecretSet {
+		t.Errorf("expected SECRET_KEY=mysecretvalue in config:set, got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateGlobalDomainsClear(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateGlobal, Field: "domains"},
+		},
+	}
+	// Desired has nil Global (or empty domains) - should clear
+	desired := &schema.Dokkufile{Version: "1"}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Global: &schema.GlobalConfig{
+			Domains: []string{"old.example.com"},
+		},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("domains:clear", "--global") {
+		t.Errorf("expected domains:clear --global, got: %v", runner.commandStrings())
+	}
+}
+
+func TestMailLinkUpdate(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "mail"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Mail: "newmail"},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {Image: "nginx", Mail: "oldmail"},
+		},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("mail:unlink", "oldmail", "myapp") {
+		t.Errorf("expected mail:unlink oldmail, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("mail:link", "newmail", "myapp") {
+		t.Errorf("expected mail:link newmail, got: %v", runner.commandStrings())
+	}
+}
+
+func TestAuthLinkUpdate(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "auth"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Directory: "newdir"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Auth:  &schema.AuthConfig{Directory: "olddir"},
+			},
+		},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("auth:unlink", "olddir", "myapp") {
+		t.Errorf("expected auth:unlink olddir, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:link", "newdir", "myapp") {
+		t.Errorf("expected auth:link newdir, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateAppWithMailAndAuth(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateApp, App: "myapp", NewValue: "nginx"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				Mail:  "mymail",
+				Auth:  &schema.AuthConfig{Directory: "mydir"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("mail:link", "mymail", "myapp") {
+		t.Errorf("expected mail:link mymail, got: %v", runner.commandStrings())
+	}
+	if !runner.hasCommand("auth:link", "mydir", "myapp") {
+		t.Errorf("expected auth:link mydir, got: %v", runner.commandStrings())
+	}
+}
+
+// FakeFileRunner for SSL cert tests.
+type FakeFileRunner struct {
+	Files map[string]string
+}
+
+func (f *FakeFileRunner) ReadFile(path string) (string, error) {
+	if content, ok := f.Files[path]; ok {
+		return content, nil
+	}
+	return "", fmt.Errorf("file not found: %s", path)
+}
+
+func (f *FakeFileRunner) WriteFile(path string, content []byte, perm os.FileMode) error {
+	f.Files[path] = string(content)
+	return nil
+}
+
+// RecordingStdinRunner records commands including stdin calls.
+type RecordingStdinRunner struct {
+	RecordingRunner
+	StdinCalls []struct {
+		Args []string
+		Data []byte
+	}
+}
+
+func (r *RecordingStdinRunner) RunWithStdin(stdin io.Reader, args ...string) (string, error) {
+	data, _ := io.ReadAll(stdin)
+	r.StdinCalls = append(r.StdinCalls, struct {
+		Args []string
+		Data []byte
+	}{Args: args, Data: data})
+	return "", nil
+}
+
+func TestSSLCertUploadViaTar(t *testing.T) {
+	runner := &RecordingStdinRunner{}
+	fileRunner := &FakeFileRunner{
+		Files: map[string]string{
+			"/certs/server.crt": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n",
+			"/certs/server.key": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----\n",
+		},
+	}
+	executor := &Executor{Runner: runner, FileRunner: fileRunner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateApp, App: "myapp", Field: "ssl"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image: "nginx",
+				SSL: &schema.SSLConfig{
+					CertFile: "/certs/server.crt",
+					KeyFile:  "/certs/server.key",
+				},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{"myapp": {Image: "nginx"}},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if len(runner.StdinCalls) != 1 {
+		t.Fatalf("expected 1 stdin call, got %d", len(runner.StdinCalls))
+	}
+	call := runner.StdinCalls[0]
+	if len(call.Args) != 2 || call.Args[0] != "certs:add" || call.Args[1] != "myapp" {
+		t.Errorf("expected certs:add myapp, got: %v", call.Args)
+	}
+	if len(call.Data) == 0 {
+		t.Error("expected non-empty tar data in stdin")
 	}
 }

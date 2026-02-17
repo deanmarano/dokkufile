@@ -1,8 +1,11 @@
 package apply
 
 import (
+	"archive/tar"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +20,15 @@ type Executor struct {
 	Runner     state.CommandRunner
 	FileRunner state.FileRunner
 	DryRun     bool
+	// EnvGetter reads environment variables for secrets. Defaults to os.Getenv.
+	EnvGetter  func(string) string
+}
+
+func (e *Executor) getEnv(key string) string {
+	if e.EnvGetter != nil {
+		return e.EnvGetter(key)
+	}
+	return os.Getenv(key)
 }
 
 // Execute runs each step in the plan, using the desired and actual state for context.
@@ -96,6 +108,9 @@ func (e *Executor) commandsForStep(s plan.Step, desired, actual *schema.Dokkufil
 	case plan.UpdatePlugin:
 		return e.installPluginCommands(s.Service, desired)
 
+	case plan.UpdateGlobal:
+		return e.globalCommands(s, desired)
+
 	default:
 		return nil, fmt.Errorf("unknown action: %s", s.Action)
 	}
@@ -124,6 +139,14 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 	// Set env
 	if len(app.Env) > 0 {
 		cmds = append(cmds, configSetArgs(appName, app.Env))
+	}
+
+	// Set secrets from host environment
+	if len(app.Secrets) > 0 {
+		secretEnv := e.resolveSecrets(app.Secrets)
+		if len(secretEnv) > 0 {
+			cmds = append(cmds, configSetArgs(appName, secretEnv))
+		}
 	}
 
 	// Set ports
@@ -224,6 +247,16 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 	// Buildpacks
 	if len(app.Buildpacks) > 0 {
 		cmds = append(cmds, buildpacksCommands(appName, app.Buildpacks)...)
+	}
+
+	// Mail link
+	if app.Mail != "" {
+		cmds = append(cmds, []string{"mail:link", app.Mail, appName})
+	}
+
+	// Auth link
+	if app.Auth != nil && app.Auth.Directory != "" {
+		cmds = append(cmds, []string{"auth:link", app.Auth.Directory, appName})
 	}
 
 	return cmds, nil
@@ -357,6 +390,19 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 	case "buildpacks":
 		return buildpacksCommands(s.App, dApp.Buildpacks), nil
 
+	case "secrets":
+		secretEnv := e.resolveSecrets(dApp.Secrets)
+		if len(secretEnv) > 0 {
+			return [][]string{configSetArgs(s.App, secretEnv)}, nil
+		}
+		return nil, nil
+
+	case "mail":
+		return mailLinkCommands(s.App, dApp.Mail, aApp.Mail), nil
+
+	case "auth":
+		return authLinkCommands(s.App, dApp.Auth, aApp.Auth), nil
+
 	default:
 		return nil, fmt.Errorf("unknown field: %s", s.Field)
 	}
@@ -448,9 +494,75 @@ func (e *Executor) sslCommands(appName string, desired, actual *schema.SSLConfig
 		// Remove SSL
 		return [][]string{{"certs:remove", appName}}, nil
 	}
-	// Adding certs requires RunWithStdin + tar, which is handled separately.
-	// For now, generate a placeholder command that the user can see.
+
+	// Read cert and key files, build tar, pipe to certs:add via StdinRunner.
+	if e.FileRunner == nil {
+		return [][]string{{"certs:add", appName}}, nil
+	}
+
+	certContent, err := e.FileRunner.ReadFile(desired.CertFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading cert file %s: %w", desired.CertFile, err)
+	}
+	keyContent, err := e.FileRunner.ReadFile(desired.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading key file %s: %w", desired.KeyFile, err)
+	}
+
+	tarBuf, err := buildCertTar([]byte(certContent), []byte(keyContent))
+	if err != nil {
+		return nil, fmt.Errorf("building cert tar: %w", err)
+	}
+
+	// Use StdinRunner if available to pipe the tar
+	if sr, ok := e.Runner.(state.StdinRunner); ok {
+		if e.DryRun {
+			fmt.Printf("[dry-run] dokku certs:add %s < <cert-tar>\n", appName)
+		} else {
+			fmt.Printf("Running: dokku certs:add %s < <cert-tar>\n", appName)
+			out, err := sr.RunWithStdin(tarBuf, "certs:add", appName)
+			if err != nil {
+				return nil, fmt.Errorf("dokku certs:add %s: %s: %w", appName, out, err)
+			}
+		}
+		return nil, nil // already executed directly
+	}
+
+	// Fallback: just emit the command name
 	return [][]string{{"certs:add", appName}}, nil
+}
+
+// buildCertTar creates an in-memory tar archive containing server.crt and server.key.
+func buildCertTar(cert, key []byte) (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	files := []struct {
+		name string
+		data []byte
+	}{
+		{"server.crt", cert},
+		{"server.key", key},
+	}
+
+	for _, f := range files {
+		hdr := &tar.Header{
+			Name: f.name,
+			Mode: 0600,
+			Size: int64(len(f.data)),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return nil, err
+		}
+		if _, err := tw.Write(f.data); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return &buf, nil
 }
 
 func (e *Executor) appJsonCommands(appName string, app schema.App) ([][]string, error) {
@@ -701,6 +813,196 @@ func (e *Executor) updateAuthFrontendCommands(name string, desired, actual *sche
 	return cmds, nil
 }
 
+// globalCommands generates commands for global setting updates.
+func (e *Executor) globalCommands(s plan.Step, desired *schema.Dokkufile) ([][]string, error) {
+	g := desired.Global
+	if g == nil {
+		g = &schema.GlobalConfig{}
+	}
+
+	switch s.Field {
+	case "domains":
+		if len(g.Domains) > 0 {
+			return [][]string{append([]string{"domains:set", "--global"}, g.Domains...)}, nil
+		}
+		return [][]string{{"domains:clear", "--global"}}, nil
+
+	case "nginx":
+		if g.Nginx == nil {
+			return nil, nil
+		}
+		return globalNginxCommands(g.Nginx), nil
+
+	case "proxy":
+		if g.Proxy == nil {
+			return nil, nil
+		}
+		var cmds [][]string
+		if g.Proxy.Type != "" {
+			cmds = append(cmds, []string{"proxy:set", "--global", g.Proxy.Type})
+		}
+		return cmds, nil
+
+	case "network":
+		if g.Network == nil {
+			return nil, nil
+		}
+		return globalNetworkCommands(g.Network), nil
+
+	case "builder":
+		if g.Builder == nil {
+			return nil, nil
+		}
+		return globalBuilderCommands(g.Builder), nil
+
+	case "registry":
+		if g.Registry == nil {
+			return nil, nil
+		}
+		return globalRegistryCommands(g.Registry), nil
+
+	case "logs":
+		if g.Logs == nil {
+			return nil, nil
+		}
+		return globalLogCommands(g.Logs), nil
+
+	case "scheduler":
+		if g.Scheduler == nil {
+			return nil, nil
+		}
+		var cmds [][]string
+		if g.Scheduler.Selected != "" {
+			cmds = append(cmds, []string{"scheduler:set", "--global", "selected", g.Scheduler.Selected})
+		}
+		return cmds, nil
+
+	default:
+		return nil, fmt.Errorf("unknown global field: %s", s.Field)
+	}
+}
+
+func globalNginxCommands(nginx *schema.NginxConfig) [][]string {
+	var cmds [][]string
+	cmds = append(cmds, []string{"nginx:set", "--global", "hsts", strconv.FormatBool(nginx.HSTS)})
+	cmds = append(cmds, []string{"nginx:set", "--global", "hsts-include-subdomains", strconv.FormatBool(nginx.HSTSIncludeSubdomains)})
+	if nginx.HSTSMaxAge > 0 {
+		cmds = append(cmds, []string{"nginx:set", "--global", "hsts-max-age", strconv.Itoa(nginx.HSTSMaxAge)})
+	}
+	cmds = append(cmds, []string{"nginx:set", "--global", "hsts-preload", strconv.FormatBool(nginx.HSTSPreload)})
+	for _, k := range sortedKeys(nginx.Properties) {
+		cmds = append(cmds, []string{"nginx:set", "--global", k, nginx.Properties[k]})
+	}
+	return cmds
+}
+
+func globalNetworkCommands(net *schema.NetworkConfig) [][]string {
+	var cmds [][]string
+	props := []struct {
+		name  string
+		value string
+	}{
+		{"attach-post-create", net.AttachPostCreate},
+		{"attach-post-deploy", net.AttachPostDeploy},
+		{"bind-all-interfaces", strconv.FormatBool(net.BindAllInterfaces)},
+		{"initial-network", net.InitialNetwork},
+		{"static-web-listener", net.StaticWebListener},
+		{"tld", net.TLD},
+	}
+	for _, p := range props {
+		if p.value != "" && p.value != "false" {
+			cmds = append(cmds, []string{"network:set", "--global", p.name, p.value})
+		}
+	}
+	return cmds
+}
+
+func globalBuilderCommands(builder *schema.BuilderConfig) [][]string {
+	var cmds [][]string
+	if builder.Selected != "" {
+		cmds = append(cmds, []string{"builder:set", "--global", "selected", builder.Selected})
+	}
+	if builder.BuildDir != "" {
+		cmds = append(cmds, []string{"builder:set", "--global", "build-dir", builder.BuildDir})
+	}
+	return cmds
+}
+
+func globalRegistryCommands(reg *schema.RegistryConfig) [][]string {
+	var cmds [][]string
+	if reg.Server != "" {
+		cmds = append(cmds, []string{"registry:set", "--global", "server", reg.Server})
+	}
+	if reg.ImageRepo != "" {
+		cmds = append(cmds, []string{"registry:set", "--global", "image-repo", reg.ImageRepo})
+	}
+	if reg.PushOnRelease {
+		cmds = append(cmds, []string{"registry:set", "--global", "push-on-release", "true"})
+	}
+	if reg.PushExtraTags != "" {
+		cmds = append(cmds, []string{"registry:set", "--global", "push-extra-tags", reg.PushExtraTags})
+	}
+	return cmds
+}
+
+func globalLogCommands(logs *schema.LogConfig) [][]string {
+	var cmds [][]string
+	if logs.MaxSize != "" {
+		cmds = append(cmds, []string{"logs:set", "--global", "max-size", logs.MaxSize})
+	}
+	if logs.VectorImage != "" {
+		cmds = append(cmds, []string{"logs:set", "--global", "vector-image", logs.VectorImage})
+	}
+	if logs.VectorSink != "" {
+		cmds = append(cmds, []string{"logs:set", "--global", "vector-sink", logs.VectorSink})
+	}
+	return cmds
+}
+
+// resolveSecrets reads secret values from the host environment.
+func (e *Executor) resolveSecrets(secrets []string) map[string]string {
+	result := map[string]string{}
+	for _, key := range secrets {
+		val := e.getEnv(key)
+		if val != "" {
+			result[key] = val
+		}
+	}
+	return result
+}
+
+// mailLinkCommands generates mail:link/unlink commands for an app.
+func mailLinkCommands(appName, desired, actual string) [][]string {
+	var cmds [][]string
+	if actual != "" && actual != desired {
+		cmds = append(cmds, []string{"mail:unlink", actual, appName})
+	}
+	if desired != "" && desired != actual {
+		cmds = append(cmds, []string{"mail:link", desired, appName})
+	}
+	return cmds
+}
+
+// authLinkCommands generates auth:link/unlink commands for an app.
+func authLinkCommands(appName string, desired, actual *schema.AuthConfig) [][]string {
+	var cmds [][]string
+	oldDir := ""
+	newDir := ""
+	if actual != nil {
+		oldDir = actual.Directory
+	}
+	if desired != nil {
+		newDir = desired.Directory
+	}
+	if oldDir != "" && oldDir != newDir {
+		cmds = append(cmds, []string{"auth:unlink", oldDir, appName})
+	}
+	if newDir != "" && newDir != oldDir {
+		cmds = append(cmds, []string{"auth:link", newDir, appName})
+	}
+	return cmds
+}
+
 // configSetArgs builds: config:set --no-restart <app> KEY1=VALUE1 KEY2=VALUE2 ...
 func configSetArgs(appName string, env map[string]string) []string {
 	args := []string{"config:set", "--no-restart", appName}
@@ -888,6 +1190,8 @@ func describeStep(s plan.Step) string {
 		return fmt.Sprintf("uninstall plugin %q", s.Service)
 	case plan.UpdatePlugin:
 		return fmt.Sprintf("update plugin %q", s.Service)
+	case plan.UpdateGlobal:
+		return fmt.Sprintf("update global %s", s.Field)
 	default:
 		return fmt.Sprintf("unknown action: %s", s.Action)
 	}

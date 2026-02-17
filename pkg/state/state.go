@@ -97,8 +97,9 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 	}
 
 	// Read mail services.
+	var mailNames []string
 	if out, err := r.Runner.Run("mail:list"); err == nil {
-		mailNames := parseServiceList(out)
+		mailNames = parseServiceList(out)
 		if len(mailNames) > 0 {
 			df.MailServices = map[string]schema.MailService{}
 		}
@@ -116,12 +117,13 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 	}
 
 	// Read auth directories.
+	var authDirNames []string
 	if out, err := r.Runner.Run("auth:list"); err == nil {
-		dirNames := parseServiceList(out)
-		if len(dirNames) > 0 {
+		authDirNames = parseServiceList(out)
+		if len(authDirNames) > 0 {
 			df.AuthDirectories = map[string]schema.AuthDirectory{}
 		}
-		for _, name := range dirNames {
+		for _, name := range authDirNames {
 			dir := schema.AuthDirectory{}
 			if info, err := r.Runner.Run("auth:info", name); err == nil {
 				dir.Provider = parseReportField(info, "Provider")
@@ -173,6 +175,9 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			df.Plugins = plugins
 		}
 	}
+
+	// Read global settings.
+	df.Global = r.readGlobalConfig()
 
 	// Read apps.
 	appsOut, err := r.Runner.Run("apps:list")
@@ -525,8 +530,149 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 			app.Links = links
 		}
 
+		// Mail link — check each mail service
+		for _, mailName := range mailNames {
+			if _, err := r.Runner.Run("mail:linked", mailName, appName); err == nil {
+				app.Mail = mailName
+				break
+			}
+		}
+
+		// Auth link — check each auth directory
+		for _, dirName := range authDirNames {
+			if _, err := r.Runner.Run("auth:linked", dirName, appName); err == nil {
+				if app.Auth == nil {
+					app.Auth = &schema.AuthConfig{}
+				}
+				app.Auth.Directory = dirName
+				break
+			}
+		}
+
 		df.Apps[appName] = app
 	}
 
 	return df, nil
+}
+
+// readGlobalConfig reads server-wide default settings using --global reports.
+func (r *DokkuReader) readGlobalConfig() *schema.GlobalConfig {
+	global := &schema.GlobalConfig{}
+	hasAny := false
+
+	// Global domains
+	if out, err := r.Runner.Run("domains:report", "--global"); err == nil {
+		if vhosts := parseReportField(out, "Domains global vhosts"); vhosts != "" {
+			global.Domains = strings.Fields(vhosts)
+			hasAny = true
+		}
+	}
+
+	// Global nginx
+	if out, err := r.Runner.Run("nginx:report", "--global"); err == nil {
+		nginx := &schema.NginxConfig{}
+		if v := parseReportField(out, "Nginx global hsts"); v == "true" {
+			nginx.HSTS = true
+		}
+		if v := parseReportField(out, "Nginx global hsts include subdomains"); v == "true" {
+			nginx.HSTSIncludeSubdomains = true
+		}
+		if v := parseReportField(out, "Nginx global hsts max age"); v != "" {
+			fmt.Sscanf(v, "%d", &nginx.HSTSMaxAge)
+		}
+		if v := parseReportField(out, "Nginx global hsts preload"); v == "true" {
+			nginx.HSTSPreload = true
+		}
+		props := parseGlobalNginxProperties(out)
+		if len(props) > 0 {
+			nginx.Properties = props
+		}
+		if nginx.HSTS || nginx.HSTSIncludeSubdomains || nginx.HSTSMaxAge > 0 || nginx.HSTSPreload || len(nginx.Properties) > 0 {
+			global.Nginx = nginx
+			hasAny = true
+		}
+	}
+
+	// Global proxy
+	if out, err := r.Runner.Run("proxy:report", "--global"); err == nil {
+		proxy := &schema.ProxyConfig{
+			Type: parseReportField(out, "Proxy global type"),
+		}
+		if proxy.Type != "" {
+			global.Proxy = proxy
+			hasAny = true
+		}
+	}
+
+	// Global network
+	if out, err := r.Runner.Run("network:report", "--global"); err == nil {
+		net := &schema.NetworkConfig{
+			AttachPostCreate:  parseReportField(out, "Network global attach post create"),
+			AttachPostDeploy:  parseReportField(out, "Network global attach post deploy"),
+			BindAllInterfaces: parseReportField(out, "Network global bind all interfaces") == "true",
+			InitialNetwork:    parseReportField(out, "Network global initial network"),
+			StaticWebListener: parseReportField(out, "Network global static web listener"),
+			TLD:               parseReportField(out, "Network global tld"),
+		}
+		if net.AttachPostCreate != "" || net.AttachPostDeploy != "" || net.BindAllInterfaces ||
+			net.InitialNetwork != "" || net.StaticWebListener != "" || net.TLD != "" {
+			global.Network = net
+			hasAny = true
+		}
+	}
+
+	// Global builder
+	if out, err := r.Runner.Run("builder:report", "--global"); err == nil {
+		builder := &schema.BuilderConfig{
+			Selected: parseReportField(out, "Builder global selected"),
+			BuildDir: parseReportField(out, "Builder global build dir"),
+		}
+		if builder.Selected != "" || builder.BuildDir != "" {
+			global.Builder = builder
+			hasAny = true
+		}
+	}
+
+	// Global registry
+	if out, err := r.Runner.Run("registry:report", "--global"); err == nil {
+		reg := &schema.RegistryConfig{
+			Server:        parseReportField(out, "Registry global server"),
+			ImageRepo:     parseReportField(out, "Registry global image repo"),
+			PushOnRelease: parseReportField(out, "Registry global push on release") == "true",
+			PushExtraTags: parseReportField(out, "Registry global push extra tags"),
+		}
+		if reg.Server != "" || reg.ImageRepo != "" || reg.PushOnRelease || reg.PushExtraTags != "" {
+			global.Registry = reg
+			hasAny = true
+		}
+	}
+
+	// Global logs
+	if out, err := r.Runner.Run("logs:report", "--global"); err == nil {
+		logs := &schema.LogConfig{
+			MaxSize:     parseReportField(out, "Logs global max size"),
+			VectorImage: parseReportField(out, "Logs global vector image"),
+			VectorSink:  parseReportField(out, "Logs global vector sink"),
+		}
+		if logs.MaxSize != "" || logs.VectorImage != "" || logs.VectorSink != "" {
+			global.Logs = logs
+			hasAny = true
+		}
+	}
+
+	// Global scheduler
+	if out, err := r.Runner.Run("scheduler:report", "--global"); err == nil {
+		sched := &schema.SchedulerConfig{
+			Selected: parseReportField(out, "Scheduler global selected"),
+		}
+		if sched.Selected != "" {
+			global.Scheduler = sched
+			hasAny = true
+		}
+	}
+
+	if !hasAny {
+		return nil
+	}
+	return global
 }
