@@ -20,6 +20,7 @@ func main() {
 	root.AddCommand(cmd.NewInspectCmd())
 	root.AddCommand(cmd.NewImportCmd())
 	root.AddCommand(cmd.NewValidateCmd())
+	root.AddCommand(cmd.NewVersionCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

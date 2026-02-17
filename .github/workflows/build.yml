@@ -36,7 +36,12 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
-        run: go build -o dokkufile-linux-${{ matrix.arch }} .
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="${GITHUB_SHA::8}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X github.com/deanmarano/dokkufile/cmd.Version=${VERSION} -X github.com/deanmarano/dokkufile/cmd.Commit=${COMMIT} -X github.com/deanmarano/dokkufile/cmd.Date=${DATE}"
+          go build -ldflags "${LDFLAGS}" -o dokkufile-linux-${{ matrix.arch }} .
       - uses: actions/upload-artifact@v4
         with:
           name: dokkufile-linux-${{ matrix.arch }}

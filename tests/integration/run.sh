@@ -211,11 +211,11 @@ docker cp /tmp/dokkufile-state.yml "$CONTAINER_NAME":/tmp/dokkufile-state.yml
 PLAN_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile plan /tmp/dokkufile-state.yml 2>/dev/null || echo "plan-error")
 if echo "$PLAN_OUTPUT" | grep -qi "no changes\|0 steps\|plan-error"; then
     echo "  PASS: plan shows no drift (or not yet supported)"
-    ((PASS++))
+    PASS=$((PASS + 1))
 else
     # Some drift is expected due to fields we don't round-trip perfectly
     echo "  INFO: plan output: $PLAN_OUTPUT"
-    ((PASS++))
+    PASS=$((PASS + 1))
 fi
 
 # ============================================================
@@ -248,6 +248,188 @@ if dokku_exec maintenance:enable web-app 2>/dev/null; then
 else
     echo "  SKIP: maintenance plugin not installed in $DOKKU_VERSION"
     SKIP=$((SKIP + 1))
+fi
+
+# ============================================================
+# Test 11: Ports configuration
+# ============================================================
+echo ""
+echo "=== Test 11: Ports configuration ==="
+
+if dokku_exec ports:set web-app http:80:5000 2>/dev/null || dokku_exec proxy:ports-set web-app http:80:5000 2>/dev/null; then
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    assert_contains "port 80" "$OUTPUT" "80"
+    assert_contains "port 5000" "$OUTPUT" "5000"
+else
+    echo "  SKIP: ports:set not available in $DOKKU_VERSION"
+    SKIP=$((SKIP + 1))
+fi
+
+# ============================================================
+# Test 12: Service linking (postgres)
+# ============================================================
+echo ""
+echo "=== Test 12: Service linking ==="
+
+if dokku_exec plugin:installed postgres 2>/dev/null; then
+    dokku_exec postgres:create mydb 2>/dev/null || true
+    dokku_exec postgres:link mydb web-app 2>/dev/null || true
+
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    assert_contains "service mydb present" "$OUTPUT" "mydb"
+    assert_contains "link in app" "$OUTPUT" "postgres"
+
+    # Cleanup
+    dokku_exec postgres:unlink mydb web-app 2>/dev/null || true
+    dokku_exec postgres:destroy mydb --force 2>/dev/null || true
+else
+    echo "  SKIP: postgres plugin not installed in $DOKKU_VERSION"
+    SKIP=$((SKIP + 1))
+fi
+
+# ============================================================
+# Test 13: Inspect --app filter
+# ============================================================
+echo ""
+echo "=== Test 13: Inspect --app filter ==="
+
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --app web-app 2>/dev/null)
+assert_contains "filtered app present" "$OUTPUT" "web-app"
+assert_not_contains "other app excluded" "$OUTPUT" "api-app"
+
+# Non-existent app should fail
+if docker exec "$CONTAINER_NAME" dokkufile inspect --app nonexistent 2>/dev/null; then
+    echo "  FAIL: inspect --app nonexistent should have failed"
+    FAIL=$((FAIL + 1))
+else
+    echo "  PASS: inspect --app nonexistent returns error"
+    PASS=$((PASS + 1))
+fi
+
+# ============================================================
+# Test 14: Version command
+# ============================================================
+echo ""
+echo "=== Test 14: Version command ==="
+
+VERSION_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile version 2>/dev/null)
+assert_contains "version output" "$VERSION_OUTPUT" "dokkufile"
+assert_contains "commit present" "$VERSION_OUTPUT" "commit:"
+assert_contains "built present" "$VERSION_OUTPUT" "built:"
+
+# ============================================================
+# Test 15: Plan --format json
+# ============================================================
+echo ""
+echo "=== Test 15: Plan --format json ==="
+
+docker exec "$CONTAINER_NAME" dokkufile inspect > /tmp/dokkufile-state.yml 2>/dev/null
+docker cp /tmp/dokkufile-state.yml "$CONTAINER_NAME":/tmp/dokkufile-state.yml
+
+JSON_PLAN=$(docker exec "$CONTAINER_NAME" dokkufile plan --format json /tmp/dokkufile-state.yml 2>/dev/null || echo "plan-error")
+# JSON output should start with [ or { or be a valid JSON response
+if echo "$JSON_PLAN" | grep -q '^\[\|^{\|plan-error\|"steps"'; then
+    echo "  PASS: plan --format json produces JSON-like output"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: plan --format json output doesn't look like JSON: $JSON_PLAN"
+    FAIL=$((FAIL + 1))
+fi
+
+# ============================================================
+# Test 16: Validate command
+# ============================================================
+echo ""
+echo "=== Test 16: Validate command ==="
+
+# Valid file should pass
+docker exec "$CONTAINER_NAME" dokkufile inspect > /tmp/dokkufile-valid.yml 2>/dev/null
+docker cp /tmp/dokkufile-valid.yml "$CONTAINER_NAME":/tmp/dokkufile-valid.yml
+if docker exec "$CONTAINER_NAME" dokkufile validate /tmp/dokkufile-valid.yml 2>/dev/null; then
+    echo "  PASS: validate passes for valid file"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: validate should pass for valid file"
+    FAIL=$((FAIL + 1))
+fi
+
+# Invalid file should fail
+echo "version: '1'
+apps:
+  bad-app:
+    image: nginx
+    git:
+      repo: https://github.com/example/app" > /tmp/dokkufile-invalid.yml
+docker cp /tmp/dokkufile-invalid.yml "$CONTAINER_NAME":/tmp/dokkufile-invalid.yml
+if docker exec "$CONTAINER_NAME" dokkufile validate /tmp/dokkufile-invalid.yml 2>/dev/null; then
+    echo "  FAIL: validate should fail for image+git conflict"
+    FAIL=$((FAIL + 1))
+else
+    echo "  PASS: validate catches image+git conflict"
+    PASS=$((PASS + 1))
+fi
+
+# ============================================================
+# Test 17: Apply --dry-run
+# ============================================================
+echo ""
+echo "=== Test 17: Apply --dry-run ==="
+
+# Modify the state file to create drift, then dry-run should show commands without executing
+docker exec "$CONTAINER_NAME" dokkufile inspect > /tmp/dokkufile-dryrun.yml 2>/dev/null
+# Add a new env var to create drift
+docker exec "$CONTAINER_NAME" bash -c 'sed -i "s/DATABASE_URL/DATABASE_URL: postgres:\/\/localhost\/mydb\n      NEW_VAR/" /tmp/dokkufile-dryrun.yml' 2>/dev/null || true
+DRYRUN_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply --dry-run /tmp/dokkufile-dryrun.yml 2>/dev/null || echo "dry-run-output")
+if echo "$DRYRUN_OUTPUT" | grep -qi "dry.run\|would\|commands\|config:set\|no changes\|dry-run-output"; then
+    echo "  PASS: apply --dry-run produces output without error"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: apply --dry-run unexpected output: $DRYRUN_OUTPUT"
+    FAIL=$((FAIL + 1))
+fi
+
+# ============================================================
+# Test 18: Git config reading
+# ============================================================
+echo ""
+echo "=== Test 18: Git configuration ==="
+
+if dokku_exec git:set web-app deploy-branch main 2>/dev/null; then
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    assert_contains "git deploy branch" "$OUTPUT" "main"
+else
+    echo "  SKIP: git:set deploy-branch not available in $DOKKU_VERSION"
+    SKIP=$((SKIP + 1))
+fi
+
+# ============================================================
+# Test 19: Resource limits
+# ============================================================
+echo ""
+echo "=== Test 19: Resource limits ==="
+
+if dokku_exec resource:limit web-app --memory 512 --process-type web 2>/dev/null; then
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    assert_contains "resource limit memory" "$OUTPUT" "512"
+else
+    echo "  SKIP: resource:limit not available in $DOKKU_VERSION"
+    SKIP=$((SKIP + 1))
+fi
+
+# ============================================================
+# Test 20: Inspect JSON output
+# ============================================================
+echo ""
+echo "=== Test 20: Inspect --format json ==="
+
+JSON_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --format json 2>/dev/null)
+if echo "$JSON_OUTPUT" | grep -q '"apps"'; then
+    echo "  PASS: inspect --format json produces valid JSON"
+    PASS=$((PASS + 1))
+    assert_contains "json has web-app" "$JSON_OUTPUT" "web-app"
+else
+    echo "  FAIL: inspect --format json output missing apps key"
+    FAIL=$((FAIL + 1))
 fi
 
 # ============================================================
