@@ -18,16 +18,15 @@ trigger-dokkufile-post-extract() {
 
   dokku_log_info1 "dokkufile.yml found, applying configuration..."
 
-  if ! "$BINARY" validate "$DOKKUFILE" 2>&1; then
-    dokku_log_warn "dokkufile.yml validation failed, skipping apply"
-    return
+  if ! "$BINARY" validate "$DOKKUFILE"; then
+    dokku_log_fail "dokkufile.yml validation failed"
   fi
 
-  if "$BINARY" apply "$DOKKUFILE" 2>&1; then
-    dokku_log_info1 "dokkufile.yml applied successfully"
-  else
-    dokku_log_warn "dokkufile.yml apply failed, continuing deploy"
+  if ! "$BINARY" apply "$DOKKUFILE"; then
+    dokku_log_fail "dokkufile.yml apply failed"
   fi
+
+  dokku_log_info1 "dokkufile.yml applied successfully"
 }
 
 trigger-dokkufile-post-extract "$@"
