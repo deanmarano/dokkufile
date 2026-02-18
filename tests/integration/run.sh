@@ -433,6 +433,279 @@ else
 fi
 
 # ============================================================
+# Test 21: Apply creates app from dokkufile
+# ============================================================
+echo ""
+echo "=== Test 21: Apply creates app from dokkufile ==="
+
+# Clean up any leftover from previous runs
+dokku_exec apps:destroy apply-test --force 2>/dev/null || true
+
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-test.yml << EOF
+version: "1"
+apps:
+  apply-test:
+    image: nginx:latest
+    domains:
+      - apply-test.dokku.me
+    env:
+      APP_ENV: production
+EOF'
+
+APPLY_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-test.yml 2>&1 || true)
+assert_contains "apply mentions app" "$APPLY_OUTPUT" "apply-test"
+
+# Verify the app was actually created and configured
+if dokku_exec apps:exists apply-test 2>/dev/null; then
+    echo "  PASS: app exists after apply"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: app does not exist after apply"
+    FAIL=$((FAIL + 1))
+fi
+
+DOMAIN_OUTPUT=$(dokku_exec domains:report apply-test 2>/dev/null || echo "")
+assert_contains "domain set by apply" "$DOMAIN_OUTPUT" "apply-test.dokku.me"
+
+ENV_OUTPUT=$(dokku_exec config:get apply-test APP_ENV 2>/dev/null || echo "")
+assert_contains "env set by apply" "$ENV_OUTPUT" "production"
+
+# ============================================================
+# Test 22: Apply is idempotent
+# ============================================================
+echo ""
+echo "=== Test 22: Apply is idempotent ==="
+
+APPLY2_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-test.yml 2>&1 || true)
+assert_contains "idempotent apply" "$APPLY2_OUTPUT" "No changes needed"
+
+# ============================================================
+# Test 23: Apply updates existing app
+# ============================================================
+echo ""
+echo "=== Test 23: Apply updates existing app ==="
+
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-update.yml << EOF
+version: "1"
+apps:
+  apply-test:
+    image: nginx:latest
+    domains:
+      - apply-test.dokku.me
+      - apply-test-v2.dokku.me
+    env:
+      APP_ENV: staging
+      NEW_VAR: hello
+EOF'
+
+UPDATE_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-update.yml 2>&1 || true)
+# Should show some changes were applied (not "No changes needed")
+assert_not_contains "update is not no-op" "$UPDATE_OUTPUT" "No changes needed"
+
+DOMAIN_OUTPUT=$(dokku_exec domains:report apply-test 2>/dev/null || echo "")
+assert_contains "new domain added" "$DOMAIN_OUTPUT" "apply-test-v2.dokku.me"
+
+ENV_OUTPUT=$(dokku_exec config:get apply-test APP_ENV 2>/dev/null || echo "")
+assert_contains "env updated" "$ENV_OUTPUT" "staging"
+
+NEW_VAR_OUTPUT=$(dokku_exec config:get apply-test NEW_VAR 2>/dev/null || echo "")
+assert_contains "new env var added" "$NEW_VAR_OUTPUT" "hello"
+
+# ============================================================
+# Test 24: Plan detects drift
+# ============================================================
+echo ""
+echo "=== Test 24: Plan detects drift ==="
+
+# Manually add a domain to create drift from the dokkufile
+dokku_exec domains:add apply-test drifted.dokku.me 2>/dev/null || true
+
+# Plan against the update file (which doesn't include drifted.dokku.me)
+PLAN_EXIT=0
+PLAN_DRIFT=$(docker exec "$CONTAINER_NAME" dokkufile plan /tmp/apply-update.yml 2>&1) || PLAN_EXIT=$?
+
+if [ "$PLAN_EXIT" -eq 2 ]; then
+    echo "  PASS: plan exits with code 2 on drift"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: plan should exit 2 on drift, got $PLAN_EXIT"
+    FAIL=$((FAIL + 1))
+fi
+assert_contains "plan mentions domain drift" "$PLAN_DRIFT" "domain"
+
+# Remove the drifted domain to restore clean state
+dokku_exec domains:remove apply-test drifted.dokku.me 2>/dev/null || true
+
+# ============================================================
+# Test 25: Round-trip (apply → inspect → plan = no drift)
+# ============================================================
+echo ""
+echo "=== Test 25: Round-trip (apply → inspect → plan = no drift) ==="
+
+# Apply a clean dokkufile
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-roundtrip.yml << EOF
+version: "1"
+apps:
+  roundtrip-app:
+    image: nginx:latest
+    domains:
+      - roundtrip.dokku.me
+    env:
+      MODE: test
+EOF'
+
+dokku_exec apps:destroy roundtrip-app --force 2>/dev/null || true
+docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-roundtrip.yml 2>&1 >/dev/null || true
+
+# Inspect the result
+docker exec "$CONTAINER_NAME" dokkufile inspect --app roundtrip-app > /tmp/roundtrip-inspected.yml 2>/dev/null
+docker cp /tmp/roundtrip-inspected.yml "$CONTAINER_NAME":/tmp/roundtrip-inspected.yml
+
+# Plan the inspected state against itself — should be no drift
+RT_EXIT=0
+RT_PLAN=$(docker exec "$CONTAINER_NAME" dokkufile plan /tmp/roundtrip-inspected.yml 2>&1) || RT_EXIT=$?
+
+if [ "$RT_EXIT" -eq 0 ]; then
+    echo "  PASS: round-trip plan shows no drift (exit 0)"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: round-trip plan should show no drift, got exit $RT_EXIT"
+    echo "  INFO: plan output: $RT_PLAN"
+    FAIL=$((FAIL + 1))
+fi
+
+# ============================================================
+# Test 26: Apply with --app flag
+# ============================================================
+echo ""
+echo "=== Test 26: Apply with --app flag ==="
+
+dokku_exec apps:destroy filtered-app --force 2>/dev/null || true
+dokku_exec apps:destroy skipped-app --force 2>/dev/null || true
+
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-filter.yml << EOF
+version: "1"
+apps:
+  filtered-app:
+    image: nginx:latest
+    domains:
+      - filtered.dokku.me
+  skipped-app:
+    image: nginx:latest
+    domains:
+      - skipped.dokku.me
+EOF'
+
+docker exec "$CONTAINER_NAME" dokkufile apply --app filtered-app /tmp/apply-filter.yml 2>&1 >/dev/null || true
+
+if dokku_exec apps:exists filtered-app 2>/dev/null; then
+    echo "  PASS: targeted app was created"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: targeted app was not created"
+    FAIL=$((FAIL + 1))
+fi
+
+if dokku_exec apps:exists skipped-app 2>/dev/null; then
+    echo "  FAIL: skipped app should not have been created"
+    FAIL=$((FAIL + 1))
+else
+    echo "  PASS: skipped app was not created"
+    PASS=$((PASS + 1))
+fi
+
+# ============================================================
+# Test 27: Import → validate round-trip
+# ============================================================
+echo ""
+echo "=== Test 27: Import → validate round-trip ==="
+
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/compose-test.yml << EOF
+version: "3"
+services:
+  webapp:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    environment:
+      APP_ENV: production
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: secret
+EOF'
+
+IMPORT_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile import -f /tmp/compose-test.yml 2>/dev/null)
+assert_contains "import has webapp" "$IMPORT_OUTPUT" "webapp"
+
+# Write imported output and validate it
+docker exec "$CONTAINER_NAME" bash -c "dokkufile import -f /tmp/compose-test.yml > /tmp/imported.yml 2>/dev/null"
+if docker exec "$CONTAINER_NAME" dokkufile validate /tmp/imported.yml 2>/dev/null; then
+    echo "  PASS: imported dokkufile passes validation"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: imported dokkufile fails validation"
+    FAIL=$((FAIL + 1))
+fi
+
+# ============================================================
+# Test 28: Apply with service linking
+# ============================================================
+echo ""
+echo "=== Test 28: Apply with service linking ==="
+
+if dokku_exec plugin:installed postgres 2>/dev/null; then
+    dokku_exec apps:destroy svc-link-app --force 2>/dev/null || true
+    dokku_exec postgres:destroy svc-link-db --force 2>/dev/null || true
+
+    docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-service.yml << EOF
+version: "1"
+services:
+  svc-link-db:
+    type: postgres
+apps:
+  svc-link-app:
+    image: nginx:latest
+    domains:
+      - svc-link.dokku.me
+    links:
+      svc-link-db: postgres
+EOF'
+
+    SVC_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-service.yml 2>&1 || true)
+    assert_contains "service apply mentions service" "$SVC_OUTPUT" "svc-link-db"
+
+    if dokku_exec postgres:exists svc-link-db 2>/dev/null; then
+        echo "  PASS: postgres service created"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: postgres service not created"
+        FAIL=$((FAIL + 1))
+    fi
+
+    if dokku_exec apps:exists svc-link-app 2>/dev/null; then
+        echo "  PASS: linked app created"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: linked app not created"
+        FAIL=$((FAIL + 1))
+    fi
+
+    LINK_OUTPUT=$(dokku_exec postgres:info svc-link-db 2>/dev/null || echo "")
+    assert_contains "service linked to app" "$LINK_OUTPUT" "svc-link-app"
+
+    # Cleanup
+    dokku_exec postgres:unlink svc-link-db svc-link-app 2>/dev/null || true
+    dokku_exec postgres:destroy svc-link-db --force 2>/dev/null || true
+    dokku_exec apps:destroy svc-link-app --force 2>/dev/null || true
+else
+    echo "  SKIP: postgres plugin not installed in $DOKKU_VERSION"
+    SKIP=$((SKIP + 1))
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
