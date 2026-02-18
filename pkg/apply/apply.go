@@ -177,6 +177,15 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 		cmds = append(cmds, schedulerCommands(appName, app.Scheduler)...)
 	}
 
+	// App.json (healthchecks, cron, scripts — before deploy so checks take effect)
+	if len(app.Healthchecks) > 0 || len(app.Cron) > 0 || app.Scripts != nil {
+		ajCmds, err := e.appJsonCommands(appName, app)
+		if err != nil {
+			return nil, err
+		}
+		cmds = append(cmds, ajCmds...)
+	}
+
 	// Deploy image (must come after all config so the container starts correctly)
 	if app.Image != "" {
 		cmds = append(cmds, []string{"git:from-image", appName, app.Image})
