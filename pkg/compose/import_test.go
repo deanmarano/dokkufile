@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -15,10 +16,11 @@ services:
     depends_on:
       - db
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["db"]
 	if !ok {
@@ -44,10 +46,11 @@ services:
   cache:
     image: redis:7-alpine
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["cache"]
 	if !ok {
@@ -65,10 +68,11 @@ services:
   db:
     image: mysql:8
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["db"]
 	if !ok {
@@ -86,10 +90,11 @@ services:
   db:
     image: mariadb:10
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["db"]
 	if !ok {
@@ -107,10 +112,11 @@ services:
   db:
     image: mongo:6
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["db"]
 	if !ok {
@@ -130,10 +136,11 @@ services:
     ports:
       - "8080:80"
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app, ok := df.Apps["web"]
 	if !ok {
@@ -154,10 +161,11 @@ services:
       FOO: bar
       BAZ: qux
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app, ok := df.Apps["web"]
 	if !ok {
@@ -180,10 +188,11 @@ services:
     volumes:
       - ./data:/var/www/html
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app, ok := df.Apps["web"]
 	if !ok {
@@ -203,10 +212,11 @@ services:
     ports:
       - "443:8443"
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Ports["https:443"] != "8443" {
@@ -224,10 +234,11 @@ services:
       - "80:8080"
       - "443:8443"
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Ports["http:80"] != "8080" {
@@ -245,10 +256,11 @@ services:
   analytics:
     image: clickhouse/clickhouse-server:latest
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["analytics"]
 	if !ok {
@@ -266,10 +278,11 @@ services:
   mq:
     image: nats:2.10
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["mq"]
 	if !ok {
@@ -292,10 +305,11 @@ services:
       timeout: 10s
       retries: 3
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Healthchecks == nil {
@@ -328,10 +342,11 @@ services:
     deploy:
       replicas: 3
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Scale["web"] != 3 {
@@ -354,10 +369,11 @@ services:
           cpus: "0.25"
           memory: 256M
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Resources == nil {
@@ -389,10 +405,11 @@ services:
     depends_on:
       - db
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app, ok := df.Apps["app"]
 	if !ok {
@@ -411,10 +428,11 @@ services:
     image: myapp:latest
     restart: always
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Process == nil {
@@ -434,10 +452,11 @@ services:
       context: .
       dockerfile: Dockerfile.prod
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Builder == nil {
@@ -460,10 +479,11 @@ services:
     cap_add:
       - NET_ADMIN
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--cap-add=NET_ADMIN" {
@@ -480,10 +500,11 @@ services:
     cap_drop:
       - SYS_ADMIN
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--cap-drop=SYS_ADMIN" {
@@ -500,10 +521,11 @@ services:
     networks:
       - mynet
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Network == nil {
@@ -524,10 +546,11 @@ services:
       options:
         max-size: 50m
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	if app.Logs == nil {
@@ -551,10 +574,11 @@ services:
       retries: 3
       start_period: 15s
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app := df.Apps["web"]
 	hcs := app.Healthchecks["web"]
@@ -578,10 +602,11 @@ services:
       db:
         condition: service_healthy
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	app, ok := df.Apps["app"]
 	if !ok {
@@ -601,10 +626,11 @@ services:
       context: .
       dockerfile: Dockerfile
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	_, ok := df.Apps["web"]
 	if !ok {
@@ -621,10 +647,11 @@ services:
   app:
     image: myapp:latest
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc, ok := df.Services["db"]
 	if !ok {
@@ -642,10 +669,11 @@ services:
   cache:
     image: redis:7-alpine
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc := df.Services["cache"]
 	if svc.ImageVersion != "7" {
@@ -660,10 +688,11 @@ services:
   db:
     image: postgres:latest
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc := df.Services["db"]
 	if svc.ImageVersion != "" {
@@ -678,10 +707,11 @@ services:
   db:
     image: postgres
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	svc := df.Services["db"]
 	if svc.ImageVersion != "" {
@@ -700,10 +730,11 @@ services:
   app:
     image: myapp:latest
 `
-	df, err := ImportCompose([]byte(input))
+	result, err := ImportCompose([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	df := result.Dokkufile
 
 	if df.Plugins == nil {
 		t.Fatal("expected plugins to be set")
@@ -721,5 +752,383 @@ services:
 	}
 	if redisPlugin.URL != "https://github.com/dokku/dokku-redis.git" {
 		t.Errorf("unexpected redis plugin URL: %q", redisPlugin.URL)
+	}
+}
+
+// --- New field mapping tests ---
+
+func TestAppWithExtraHosts(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    extra_hosts:
+      - "host1:10.0.0.1"
+      - "host2:10.0.0.2"
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	expected := []string{"--add-host=host1:10.0.0.1", "--add-host=host2:10.0.0.2"}
+	if len(app.DockerOptions.Deploy) != 2 {
+		t.Fatalf("expected 2 docker options, got %v", app.DockerOptions.Deploy)
+	}
+	for i, opt := range expected {
+		if app.DockerOptions.Deploy[i] != opt {
+			t.Errorf("expected %q, got %q", opt, app.DockerOptions.Deploy[i])
+		}
+	}
+}
+
+func TestAppWithTmpfsString(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    tmpfs: /run
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--tmpfs=/run" {
+		t.Errorf("expected docker option --tmpfs=/run, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithTmpfsList(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    tmpfs:
+      - /run
+      - /tmp
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 2 {
+		t.Fatalf("expected 2 docker options, got %v", app.DockerOptions.Deploy)
+	}
+	if app.DockerOptions.Deploy[0] != "--tmpfs=/run" {
+		t.Errorf("expected --tmpfs=/run, got %q", app.DockerOptions.Deploy[0])
+	}
+	if app.DockerOptions.Deploy[1] != "--tmpfs=/tmp" {
+		t.Errorf("expected --tmpfs=/tmp, got %q", app.DockerOptions.Deploy[1])
+	}
+}
+
+func TestAppWithSysctlsMap(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    sysctls:
+      net.core.somaxconn: "1024"
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--sysctl=net.core.somaxconn=1024" {
+		t.Errorf("expected docker option --sysctl=net.core.somaxconn=1024, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithSysctlsList(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    sysctls:
+      - "net.core.somaxconn=1024"
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--sysctl=net.core.somaxconn=1024" {
+		t.Errorf("expected docker option --sysctl=net.core.somaxconn=1024, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithShmSize(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    shm_size: 256m
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--shm-size=256m" {
+		t.Errorf("expected docker option --shm-size=256m, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithUser(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    user: "1000:1000"
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--user=1000:1000" {
+		t.Errorf("expected docker option --user=1000:1000, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithStopGracePeriod(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    stop_grace_period: 30s
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--stop-timeout=30" {
+		t.Errorf("expected docker option --stop-timeout=30, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithLabelsMap(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    labels:
+      com.example.description: "My app"
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--label=com.example.description=My app" {
+		t.Errorf("expected docker option --label=com.example.description=My app, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithLabelsList(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    labels:
+      - "com.example.description=My app"
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--label=com.example.description=My app" {
+		t.Errorf("expected docker option --label=com.example.description=My app, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithPrivileged(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    privileged: true
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--privileged" {
+		t.Errorf("expected docker option --privileged, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithDns(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 2 {
+		t.Fatalf("expected 2 docker options, got %v", app.DockerOptions.Deploy)
+	}
+	if app.DockerOptions.Deploy[0] != "--dns=8.8.8.8" {
+		t.Errorf("expected --dns=8.8.8.8, got %q", app.DockerOptions.Deploy[0])
+	}
+	if app.DockerOptions.Deploy[1] != "--dns=8.8.4.4" {
+		t.Errorf("expected --dns=8.8.4.4, got %q", app.DockerOptions.Deploy[1])
+	}
+}
+
+func TestAppWithDnsSearch(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    dns_search:
+      - example.com
+      - local.test
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	df := result.Dokkufile
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 2 {
+		t.Fatalf("expected 2 docker options, got %v", app.DockerOptions.Deploy)
+	}
+	if app.DockerOptions.Deploy[0] != "--dns-search=example.com" {
+		t.Errorf("expected --dns-search=example.com, got %q", app.DockerOptions.Deploy[0])
+	}
+	if app.DockerOptions.Deploy[1] != "--dns-search=local.test" {
+		t.Errorf("expected --dns-search=local.test, got %q", app.DockerOptions.Deploy[1])
+	}
+}
+
+// --- Warning tests ---
+
+func TestWarningsForSkippedFields(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    command: node server.js
+    env_file: .env
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+
+	foundCommand := false
+	foundEnvFile := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, `"command"`) && strings.Contains(w, "Procfile") {
+			foundCommand = true
+		}
+		if strings.Contains(w, `"env_file"`) && strings.Contains(w, "cannot resolve") {
+			foundEnvFile = true
+		}
+	}
+	if !foundCommand {
+		t.Errorf("expected warning about command field, got %v", result.Warnings)
+	}
+	if !foundEnvFile {
+		t.Errorf("expected warning about env_file field, got %v", result.Warnings)
+	}
+}
+
+func TestWarningsForUnknownFields(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    foo_bar: something
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+	if !strings.Contains(result.Warnings[0], `"foo_bar"`) || !strings.Contains(result.Warnings[0], "unrecognized") {
+		t.Errorf("expected unrecognized warning for foo_bar, got %q", result.Warnings[0])
+	}
+}
+
+func TestNoWarningsForHandledFields(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    ports:
+      - "8080:80"
+    environment:
+      FOO: bar
+`
+	result, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings, got %v", result.Warnings)
 	}
 }

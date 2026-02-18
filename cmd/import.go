@@ -21,12 +21,16 @@ func NewImportCmd() *cobra.Command {
 				return fmt.Errorf("reading compose file: %w", err)
 			}
 
-			df, err := compose.ImportCompose(data)
+			result, err := compose.ImportCompose(data)
 			if err != nil {
 				return err
 			}
 
-			out, err := yaml.Marshal(df)
+			for _, w := range result.Warnings {
+				fmt.Fprintln(os.Stderr, "warning:", w)
+			}
+
+			out, err := yaml.Marshal(result.Dokkufile)
 			if err != nil {
 				return err
 			}

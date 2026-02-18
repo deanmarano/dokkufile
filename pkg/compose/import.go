@@ -2,11 +2,18 @@ package compose
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/deanmarano/dokkufile/pkg/schema"
 	"gopkg.in/yaml.v3"
 )
+
+// ImportResult holds the converted Dokkufile and any warnings from the import.
+type ImportResult struct {
+	Dokkufile *schema.Dokkufile
+	Warnings  []string
+}
 
 // ComposeFile represents the subset of docker-compose.yml we parse.
 type ComposeFile struct {
@@ -16,20 +23,30 @@ type ComposeFile struct {
 
 // ComposeService represents a single service in a docker-compose file.
 type ComposeService struct {
-	Image       string                `yaml:"image"`
-	Ports       []string              `yaml:"ports"`
-	Environment map[string]string     `yaml:"environment"`
-	Volumes     []string              `yaml:"volumes"`
-	DependsOn   ComposeDependsOn      `yaml:"depends_on"`
-	Healthcheck *ComposeHealthcheck   `yaml:"healthcheck"`
-	Deploy      *ComposeDeploy        `yaml:"deploy"`
-	Restart     string                `yaml:"restart"`
-	Build       *ComposeBuild         `yaml:"build"`
-	CapAdd      []string              `yaml:"cap_add"`
-	CapDrop     []string              `yaml:"cap_drop"`
-	Networks    ComposeNetworks       `yaml:"networks"`
-	Logging     *ComposeLogging       `yaml:"logging"`
-	Entrypoint  interface{}           `yaml:"entrypoint"`
+	Image           string               `yaml:"image"`
+	Ports           []string             `yaml:"ports"`
+	Environment     map[string]string    `yaml:"environment"`
+	Volumes         []string             `yaml:"volumes"`
+	DependsOn       ComposeDependsOn     `yaml:"depends_on"`
+	Healthcheck     *ComposeHealthcheck  `yaml:"healthcheck"`
+	Deploy          *ComposeDeploy       `yaml:"deploy"`
+	Restart         string               `yaml:"restart"`
+	Build           *ComposeBuild        `yaml:"build"`
+	CapAdd          []string             `yaml:"cap_add"`
+	CapDrop         []string             `yaml:"cap_drop"`
+	Networks        ComposeNetworks      `yaml:"networks"`
+	Logging         *ComposeLogging      `yaml:"logging"`
+	Entrypoint      interface{}          `yaml:"entrypoint"`
+	ExtraHosts      []string             `yaml:"extra_hosts"`
+	Tmpfs           ComposeTmpfs         `yaml:"tmpfs"`
+	Sysctls         ComposeSysctls       `yaml:"sysctls"`
+	ShmSize         string               `yaml:"shm_size"`
+	User            string               `yaml:"user"`
+	StopGracePeriod string               `yaml:"stop_grace_period"`
+	Labels          ComposeLabels        `yaml:"labels"`
+	Privileged      bool                 `yaml:"privileged"`
+	Dns             []string             `yaml:"dns"`
+	DnsSearch       []string             `yaml:"dns_search"`
 }
 
 // ComposeBuild represents docker-compose build configuration.
@@ -87,6 +104,86 @@ func (d *ComposeDependsOn) UnmarshalYAML(value *yaml.Node) error {
 		for k := range m {
 			*d = append(*d, k)
 		}
+	}
+	return nil
+}
+
+// ComposeTmpfs is a custom type that handles both string and list forms of tmpfs.
+type ComposeTmpfs []string
+
+// UnmarshalYAML handles both string form (tmpfs: /run) and list form (tmpfs: [/run, /tmp]).
+func (t *ComposeTmpfs) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := value.Decode(&s); err != nil {
+			return err
+		}
+		*t = []string{s}
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*t = list
+	}
+	return nil
+}
+
+// ComposeSysctls is a custom type that handles both map and list forms of sysctls.
+type ComposeSysctls map[string]string
+
+// UnmarshalYAML handles both map form (sysctls: {k: v}) and list form (sysctls: ["k=v"]).
+func (s *ComposeSysctls) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		*s = m
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		result := make(map[string]string)
+		for _, item := range list {
+			parts := strings.SplitN(item, "=", 2)
+			if len(parts) == 2 {
+				result[parts[0]] = parts[1]
+			}
+		}
+		*s = result
+	}
+	return nil
+}
+
+// ComposeLabels is a custom type that handles both map and list forms of labels.
+type ComposeLabels map[string]string
+
+// UnmarshalYAML handles both map form (labels: {k: v}) and list form (labels: ["k=v"]).
+func (l *ComposeLabels) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		*l = m
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		result := make(map[string]string)
+		for _, item := range list {
+			parts := strings.SplitN(item, "=", 2)
+			if len(parts) == 2 {
+				result[parts[0]] = parts[1]
+			}
+		}
+		*l = result
 	}
 	return nil
 }
@@ -156,6 +253,50 @@ var servicePluginURLs = map[string]string{
 	"typesense":     "https://github.com/dokku/dokku-typesense.git",
 }
 
+// handledFields are compose service fields we parse and convert.
+var handledFields = map[string]bool{
+	"image":             true,
+	"ports":             true,
+	"environment":       true,
+	"volumes":           true,
+	"depends_on":        true,
+	"healthcheck":       true,
+	"deploy":            true,
+	"restart":           true,
+	"build":             true,
+	"cap_add":           true,
+	"cap_drop":          true,
+	"networks":          true,
+	"logging":           true,
+	"entrypoint":        true,
+	"extra_hosts":       true,
+	"tmpfs":             true,
+	"sysctls":           true,
+	"shm_size":          true,
+	"user":              true,
+	"stop_grace_period": true,
+	"labels":            true,
+	"privileged":        true,
+	"dns":               true,
+	"dns_search":        true,
+}
+
+// skippedFields are compose service fields we recognize but skip, with reasons.
+var skippedFields = map[string]string{
+	"command":        "use a Procfile instead",
+	"stdin_open":     "not applicable to production deployments",
+	"tty":            "not applicable to production deployments",
+	"env_file":       "cannot resolve file paths during import; add env vars manually",
+	"container_name": "managed by dokku",
+	"hostname":       "managed by dokku",
+	"working_dir":    "set in Dockerfile instead",
+	"expose":         "use ports mapping instead",
+	"pid":            "namespace mode not supported",
+	"ipc":            "namespace mode not supported",
+	"profiles":       "compose-specific, not applicable to dokku",
+	"extends":        "compose-specific, not applicable to dokku",
+}
+
 // isKnownService checks if an image name matches a known backing service.
 func isKnownService(image string) (string, bool) {
 	// Extract image name without tag
@@ -184,15 +325,14 @@ func extractImageVersion(image string) string {
 		return ""
 	}
 	// Strip common suffixes like "-alpine", "-slim", etc. to get the version core
-	// e.g. "15-alpine" -> "15", "7-alpine" -> "7"
 	for _, suffix := range []string{"-alpine", "-slim", "-bullseye", "-bookworm", "-buster"} {
 		tag = strings.TrimSuffix(tag, suffix)
 	}
 	return tag
 }
 
-// ImportCompose parses a docker-compose YAML and returns a Dokkufile.
-func ImportCompose(data []byte) (*schema.Dokkufile, error) {
+// ImportCompose parses a docker-compose YAML and returns an ImportResult.
+func ImportCompose(data []byte) (*ImportResult, error) {
 	var compose ComposeFile
 	if err := yaml.Unmarshal(data, &compose); err != nil {
 		return nil, fmt.Errorf("parsing compose file: %w", err)
@@ -352,6 +492,73 @@ func ImportCompose(data []byte) (*schema.Dokkufile, error) {
 			}
 		}
 
+		// Convert extra_hosts
+		for _, host := range svc.ExtraHosts {
+			dockerOpts = append(dockerOpts, "--add-host="+host)
+		}
+
+		// Convert tmpfs
+		for _, path := range svc.Tmpfs {
+			dockerOpts = append(dockerOpts, "--tmpfs="+path)
+		}
+
+		// Convert sysctls
+		if len(svc.Sysctls) > 0 {
+			keys := make([]string, 0, len(svc.Sysctls))
+			for k := range svc.Sysctls {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				dockerOpts = append(dockerOpts, "--sysctl="+k+"="+svc.Sysctls[k])
+			}
+		}
+
+		// Convert shm_size
+		if svc.ShmSize != "" {
+			dockerOpts = append(dockerOpts, "--shm-size="+svc.ShmSize)
+		}
+
+		// Convert user
+		if svc.User != "" {
+			dockerOpts = append(dockerOpts, "--user="+svc.User)
+		}
+
+		// Convert stop_grace_period
+		if svc.StopGracePeriod != "" {
+			seconds := parseDurationSeconds(svc.StopGracePeriod)
+			if seconds > 0 {
+				dockerOpts = append(dockerOpts, fmt.Sprintf("--stop-timeout=%d", seconds))
+			}
+		}
+
+		// Convert labels
+		if len(svc.Labels) > 0 {
+			keys := make([]string, 0, len(svc.Labels))
+			for k := range svc.Labels {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				dockerOpts = append(dockerOpts, "--label="+k+"="+svc.Labels[k])
+			}
+		}
+
+		// Convert privileged
+		if svc.Privileged {
+			dockerOpts = append(dockerOpts, "--privileged")
+		}
+
+		// Convert dns
+		for _, server := range svc.Dns {
+			dockerOpts = append(dockerOpts, "--dns="+server)
+		}
+
+		// Convert dns_search
+		for _, domain := range svc.DnsSearch {
+			dockerOpts = append(dockerOpts, "--dns-search="+domain)
+		}
+
 		if len(dockerOpts) > 0 {
 			app.DockerOptions.Deploy = append(app.DockerOptions.Deploy, dockerOpts...)
 		}
@@ -375,12 +582,72 @@ func ImportCompose(data []byte) (*schema.Dokkufile, error) {
 		df.Apps[name] = app
 	}
 
-	return df, nil
+	warnings := collectWarnings(data)
+
+	return &ImportResult{
+		Dokkufile: df,
+		Warnings:  warnings,
+	}, nil
+}
+
+// collectWarnings walks the raw YAML to detect skipped and unrecognized service fields.
+func collectWarnings(data []byte) []string {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil
+	}
+
+	// root.Content[0] is the document mapping
+	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return nil
+	}
+	doc := root.Content[0]
+	if doc.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	// Find the "services" key
+	var servicesNode *yaml.Node
+	for i := 0; i < len(doc.Content)-1; i += 2 {
+		if doc.Content[i].Value == "services" {
+			servicesNode = doc.Content[i+1]
+			break
+		}
+	}
+	if servicesNode == nil || servicesNode.Kind != yaml.MappingNode {
+		return nil
+	}
+
+	var warnings []string
+
+	// Iterate over each service
+	for i := 0; i < len(servicesNode.Content)-1; i += 2 {
+		svcName := servicesNode.Content[i].Value
+		svcNode := servicesNode.Content[i+1]
+		if svcNode.Kind != yaml.MappingNode {
+			continue
+		}
+
+		// Iterate over each field in the service
+		for j := 0; j < len(svcNode.Content)-1; j += 2 {
+			fieldName := svcNode.Content[j].Value
+
+			if handledFields[fieldName] {
+				continue
+			}
+
+			if reason, ok := skippedFields[fieldName]; ok {
+				warnings = append(warnings, fmt.Sprintf("service %q: field %q skipped (%s)", svcName, fieldName, reason))
+			} else {
+				warnings = append(warnings, fmt.Sprintf("service %q: unrecognized field %q ignored", svcName, fieldName))
+			}
+		}
+	}
+
+	return warnings
 }
 
 // parsePortMapping extracts the scheme and host port from a compose port string.
-// Format: "host:container" or "host:container/protocol"
-// Returns (scheme, hostPort). Scheme is "https" for 443, "http" otherwise.
 func parsePortMapping(port string) (string, string) {
 	// Strip protocol suffix if present (e.g., "8080:80/tcp")
 	port = strings.Split(port, "/")[0]
@@ -416,8 +683,6 @@ func convertHealthcheck(hc *ComposeHealthcheck) *schema.HealthcheckConfig {
 
 	cfg := &schema.HealthcheckConfig{}
 
-	// Parse the test command
-	// docker-compose test can be: ["CMD", "curl", ...] or ["CMD-SHELL", "cmd"]
 	if len(hc.Test) >= 2 {
 		switch hc.Test[0] {
 		case "CMD", "CMD-SHELL":
@@ -452,7 +717,6 @@ func parseDurationSeconds(s string) int {
 	if s == "" {
 		return 0
 	}
-	// Try simple formats: "30s", "5m", "1h"
 	if strings.HasSuffix(s, "s") {
 		var n int
 		fmt.Sscanf(s, "%ds", &n)
