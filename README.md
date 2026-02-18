@@ -42,111 +42,292 @@ This means build-time config like docker options, buildpacks, and builder select
 
 If validation or apply fails, the deploy is aborted.
 
-## Schema
+## Schema Reference
+
+Only declare what you want to manage. Omitted fields are left untouched on the server.
 
 ```yaml
 version: "1"
+```
 
+### Services
+
+Backing services (databases, caches, etc.) backed by [dokku service plugins](https://dokku.com/docs/community/plugins/). 15 types supported: postgres, redis, mysql, mariadb, mongo, memcached, rabbitmq, elasticsearch, clickhouse, couchdb, meilisearch, nats, rethinkdb, solr, typesense.
+
+```yaml
 services:
-  myapp-db:
+  mydb:
     type: postgres
-  myapp-redis:
+    image_version: "15"       # optional: pin service image version
+  mycache:
     type: redis
+```
 
+### Plugins
+
+Dokku plugins to install. Referenced service types auto-add their plugin, but you can also declare plugins explicitly.
+
+```yaml
+plugins:
+  postgres:
+    url: https://github.com/dokku/dokku-postgres.git
+    committish: v1.0.0        # optional: pin to a tag/branch/commit
+```
+
+### Apps
+
+```yaml
 apps:
   myapp:
-    # Image-based deploy (mutually exclusive with git push)
-    image: myorg/myapp:latest
+    # --- Deployment source (pick one) ---
+    image: myorg/myapp:latest             # deploy from Docker image
 
-    # Domains
+    git:                                   # OR deploy via git
+      repo: https://github.com/org/app
+      branch: main
+      keep_git_dir: false
+
+    # --- Domains ---
     domains:
       - myapp.example.com
       - example.com
 
-    # Port mappings (scheme:host_port: container_port)
+    # --- Port mappings (scheme:host_port: container_port) ---
     ports:
       http:80: "3000"
       https:443: "3000"
 
-    # Linked backing services
-    links:
-      postgres: myapp-db
-      redis: myapp-redis
+    # --- Environment variables ---
+    env:
+      NODE_ENV: production
+      DATABASE_URL: postgres://...
 
-    # Persistent storage (host:container)
+    # --- Secrets (pulled from host env at apply time) ---
+    secrets:
+      - SECRET_KEY
+      - AWS_ACCESS_KEY_ID
+
+    # --- Linked backing services ---
+    links:
+      postgres: mydb
+      redis: mycache
+
+    # --- Persistent storage (host:container) ---
     storage:
       - /mnt/data/uploads:/app/uploads
 
-    # Docker options by phase
+    # --- Docker options by phase ---
     docker_options:
       build:
         - --build-arg NODE_ENV=production
       deploy:
         - --gpus all
+        - --cap-add=NET_ADMIN
       run:
         - --cap-add=SYS_ADMIN
 
-    # Let's Encrypt SSL
-    letsencrypt: true
+    # --- SSL ---
+    letsencrypt: true                      # auto-provision via Let's Encrypt
 
-    # Process scaling
+    ssl:                                   # OR provide custom cert/key files
+      cert_file: /path/to/cert.pem
+      key_file: /path/to/key.pem
+
+    # --- Process scaling ---
     scale:
-      web: 1
-      worker: 2
+      web: 2
+      worker: 1
 
-    # Network attachments
+    # --- Resource limits/reservations per process type ---
+    resources:
+      web:
+        limits:
+          cpu: "1.0"
+          memory: 512M
+          memory_swap: 1G
+          nvidia_gpu: "1"
+        reservations:
+          cpu: "0.5"
+          memory: 256M
+
+    # --- Health checks per process type ---
+    healthchecks:
+      web:
+        - path: /health
+          port: 3000
+          timeout: 10
+          attempts: 3
+          wait: 30
+          initial_delay: 15
+          content: ok
+        - command: curl -f http://localhost/health
+
+    # --- Cron jobs ---
+    cron:
+      - command: bundle exec rake cleanup
+        schedule: "0 2 * * *"
+
+    # --- Network ---
     network:
+      initial_network: my-network
       attach_post_create: shared
       attach_post_deploy: my-network
+      bind_all_interfaces: false
+      static_web_listener: ""
+      tld: ""
 
-    # Nginx properties
+    # --- Nginx ---
     nginx:
+      hsts: true
+      hsts_include_subdomains: true
+      hsts_max_age: 31536000
+      hsts_preload: false
       properties:
         client-max-body-size: 100m
+        proxy-read-timeout: 120s
+        proxy-buffer-size: 8k
 
-    # Proxy config
+    # --- Nginx custom template (sigil format) ---
+    nginx_template: /path/to/nginx.conf.sigil
+
+    # --- Proxy ---
     proxy:
       enabled: true
+      type: nginx                          # nginx, caddy, haproxy, traefik
+      caddy:                               # proxy-type-specific properties
+        key: value
+      haproxy:
+        key: value
+      traefik:
+        key: value
 
-    # Mail service link
-    mail: default
-
-    # Builder selection
+    # --- Builder ---
     builder:
-      selected: dockerfile
+      selected: dockerfile                 # dockerfile, herokuish, pack, nixpacks
+      build_dir: ""
+      dockerfile_path: Dockerfile.prod
+      pack_projecttoml_path: ""
+      nixpacks_toml_path: ""
+      herokuish_allowed: ""
 
-    # Buildpacks (for herokuish/pack builds)
+    # --- Buildpacks (for herokuish/pack builds) ---
     buildpacks:
       - https://github.com/heroku/heroku-buildpack-nodejs.git
+      - https://github.com/heroku/heroku-buildpack-ruby.git
 
-    # Deploy checks
+    # --- Registry ---
+    registry:
+      server: registry.example.com
+      image_repo: myorg/myapp
+      push_on_release: true
+      push_extra_tags: latest
+
+    # --- Zero-downtime deploy checks ---
     checks:
       disabled:
         - _all_
+      skipped:
+        - worker
+      wait_to_retire: 30
 
-    # App locking
-    locked: false
+    # --- Process management ---
+    process:
+      restart_policy: always               # always, on-failure, on-failure:N, unless-stopped
+      procfile_path: Procfile
 
-    # Maintenance mode
+    # --- Log management ---
+    logs:
+      max_size: 50m
+      vector_image: timberio/vector:latest
+      vector_sink: "https://logs.example.com"
+      app_label_alias: my-app
+
+    # --- Scheduler ---
+    scheduler:
+      selected: docker-local
+      docker_local_init_process: "true"
+      docker_local_parallel_schedule_count: "1"
+
+    # --- Deployment scripts ---
+    scripts:
+      predeploy: bundle exec rake db:migrate
+      postdeploy: bundle exec rake cache:clear
+
+    # --- Auth (dokku-auth plugin) ---
+    auth:
+      directory: ldap
+      protected: authelia
+
+    # --- Mail service link ---
+    mail: default
+
+    # --- Maintenance mode ---
     maintenance: false
 
-# Mail services
+    # --- App locking ---
+    locked: false
+```
+
+### Global Config
+
+Server-wide defaults applied via `--global` flag. These serve as defaults for all apps.
+
+```yaml
+global:
+  domains:
+    - dokku.example.com
+  nginx:
+    properties:
+      client-max-body-size: 50m
+  proxy:
+    type: nginx
+  network:
+    initial_network: bridge
+  builder:
+    selected: herokuish
+  registry:
+    server: registry.example.com
+  logs:
+    max_size: 100m
+  scheduler:
+    selected: docker-local
+```
+
+### Mail Services
+
+```yaml
 mail_services:
   default:
     provider: ""
+    config:
+      key: value
+```
 
-# Auth directories (dokku-auth plugin)
+### Auth Directories
+
+```yaml
 auth_directories:
   ldap:
     provider: LDAP
+    config:
+      server: ldap://ldap.example.com
+```
 
-# Auth frontends (dokku-auth plugin)
+### Auth Frontends
+
+```yaml
 auth_frontends:
   authelia:
     provider: Authelia SSO
+    directory: ldap
+    protected_apps:
+      - myapp
+    oidc_enabled: true
+    oidc_clients:
+      - id: myapp-client
+        secret: supersecret
+        redirect_uri: https://myapp.example.com/callback
 ```
-
-Only declare what you want to manage. Omitted fields are left untouched on the server.
 
 ## CLI Commands
 
@@ -184,6 +365,15 @@ Preview changes without applying:
 
 ```bash
 dokku dokkufile:plan dokkufile.yml
+
+# JSON output (for CI/scripting)
+dokku dokkufile:plan dokkufile.yml --format json
+```
+
+Exits with code **2** when drift is detected — useful in CI to fail on configuration drift:
+
+```bash
+dokku dokkufile:plan dokkufile.yml || echo "Drift detected!"
 ```
 
 ### apply
@@ -199,11 +389,35 @@ dokku dokkufile:apply dokkufile.yml --dry-run
 
 ### validate
 
-Check a dokkufile without connecting to the server:
+Check a dokkufile offline without connecting to the server:
 
 ```bash
 dokku dokkufile:validate dokkufile.yml
 ```
+
+Validates:
+- YAML/JSON syntax
+- `image` and `git.repo` are mutually exclusive
+- `letsencrypt` and `ssl` are mutually exclusive
+- SSL requires both `cert_file` and `key_file`
+- Service link types match declared services
+- Mail and auth references point to declared resources
+
+### import
+
+Convert a `docker-compose.yml` to dokkufile format:
+
+```bash
+dokku dokkufile:import -f docker-compose.yml
+```
+
+Automatically detects backing services (postgres, redis, etc.) from image names and converts them to dokkufile services with links.
+
+Prints warnings to stderr for:
+- **Skipped fields** with reasons (e.g., `command` → "use a Procfile instead")
+- **Unrecognized fields** that were ignored
+
+Supported compose fields: `image`, `ports`, `environment`, `volumes`, `depends_on`, `healthcheck`, `deploy` (replicas, resources), `restart`, `build`, `cap_add`, `cap_drop`, `networks`, `logging`, `entrypoint`, `extra_hosts`, `tmpfs`, `sysctls`, `shm_size`, `user`, `stop_grace_period`, `labels`, `privileged`, `dns`, `dns_search`.
 
 ### version
 
@@ -217,6 +431,18 @@ Env vars are **omitted by default** from `inspect` output because they typically
 
 When a dokkufile has no `env` section, plan/apply leave the app's env vars untouched. Only add `env` to your dokkufile if you want to manage env vars declaratively.
 
+### Secrets
+
+The `secrets` field lets you reference environment variables by name. At apply time, values are pulled from the host's environment — so secrets never appear in the YAML file:
+
+```yaml
+apps:
+  myapp:
+    secrets:
+      - DATABASE_URL
+      - STRIPE_SECRET_KEY
+```
+
 ## Git Push Workflow
 
 The recommended workflow:
@@ -228,13 +454,25 @@ The recommended workflow:
 
 The `post-extract` hook runs after code extraction but before the build, so build-time settings (docker build args, buildpacks, builder) take effect.
 
-## Import from docker-compose
+## Standalone CLI Usage
 
-Generate a dokkufile from an existing `docker-compose.yml`:
+You can also use dokkufile as a standalone binary (without the Dokku plugin):
 
 ```bash
-dokku dokkufile:import -f docker-compose.yml
+# Build from source
+CGO_ENABLED=0 go build -o dokkufile .
+
+# Use directly on a Dokku server
+./dokkufile inspect myapp
+./dokkufile plan dokkufile.yml
+./dokkufile apply dokkufile.yml
+./dokkufile validate dokkufile.yml
+./dokkufile import -f docker-compose.yml
 ```
+
+## Supported Dokku Versions
+
+Tested against Dokku 0.34.9, 0.35.20, 0.36.11, and 0.37.6.
 
 ## Development
 
@@ -249,10 +487,10 @@ CGO_ENABLED=0 go test ./...
 
 ```bash
 cd tests/integration
-./run.sh
+DOKKU_VERSION=0.37.6 ./run.sh
 ```
 
-Requires a running dokku server with postgres and redis plugins.
+Requires Docker and Go. Spins up a Dokku container and runs end-to-end tests.
 
 ## License
 

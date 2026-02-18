@@ -1,0 +1,62 @@
+version: "1"
+
+services:
+  myapp-db:
+    type: postgres
+    image_version: "16"
+
+plugins:
+  postgres:
+    url: https://github.com/dokku/dokku-postgres.git
+
+apps:
+  myapp:
+    domains:
+      - myapp.example.com
+
+    ports:
+      http:80: "3000"
+      https:443: "3000"
+
+    env:
+      RAILS_ENV: production
+      RAILS_LOG_TO_STDOUT: "true"
+      RAILS_SERVE_STATIC_FILES: "true"
+
+    secrets:
+      - SECRET_KEY_BASE
+      - DATABASE_URL
+
+    links:
+      postgres: myapp-db
+
+    storage:
+      - /var/lib/dokku/data/myapp/uploads:/app/public/uploads
+
+    letsencrypt: true
+
+    scale:
+      web: 2
+      worker: 1
+
+    builder:
+      selected: dockerfile
+      dockerfile_path: Dockerfile
+
+    process:
+      restart_policy: on-failure:10
+
+    scripts:
+      predeploy: bundle exec rake db:migrate
+
+    healthchecks:
+      web:
+        - path: /health
+          timeout: 10
+          attempts: 5
+          wait: 30
+          initial_delay: 30
+
+    nginx:
+      properties:
+        client-max-body-size: 50m

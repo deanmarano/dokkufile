@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/deanmarano/dokkufile/pkg/schema"
+	"github.com/deanmarano/dokkufile/pkg/services"
 )
 
 // commandTimeout is the maximum time to wait for a single dokku command.
@@ -104,11 +105,7 @@ type DokkuReader struct {
 }
 
 // serviceTypes lists the backing service plugins to scan.
-var serviceTypes = []string{
-	"postgres", "redis", "mysql", "mariadb", "mongo",
-	"clickhouse", "couchdb", "elasticsearch", "memcached",
-	"meilisearch", "nats", "rabbitmq", "rethinkdb", "solr", "typesense",
-}
+var serviceTypes = services.Types
 
 // Read shells out to dokku to build the current server state.
 func (r *DokkuReader) Read() (*schema.Dokkufile, error) {

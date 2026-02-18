@@ -53,12 +53,9 @@ Only `cobra` and `yaml.v3`. No ORM, no HTTP client, no test framework beyond std
 
 ## Service Types
 
-15 backing services are supported. The canonical list lives in three places that must stay in sync:
-1. `pkg/state/state.go` — `serviceTypes` slice (used by state reader)
-2. `pkg/compose/import.go` — `knownServices` map (used by compose importer)
-3. `pkg/compose/import.go` — `servicePluginURLs` map (plugin URLs)
+15 backing services are supported. The canonical list lives in `pkg/services/services.go` (`services.Types` and `services.PluginURLs`). Both `pkg/state/state.go` and `pkg/compose/import.go` derive from this single source of truth.
 
-The types: postgres, redis, mysql, mariadb, mongo, memcached, rabbitmq, elasticsearch, clickhouse, couchdb, meilisearch, nats, rethinkdb, solr, typesense.
+The types: clickhouse, couchdb, elasticsearch, mariadb, meilisearch, memcached, mongo, mysql, nats, postgres, rabbitmq, redis, rethinkdb, solr, typesense.
 
 ## Testing Patterns
 

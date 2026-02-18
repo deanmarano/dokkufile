@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/deanmarano/dokkufile/pkg/schema"
+	"github.com/deanmarano/dokkufile/pkg/services"
 	"gopkg.in/yaml.v3"
 )
 
@@ -216,42 +217,14 @@ type ComposeResourceValues struct {
 }
 
 // knownServices maps image prefixes to dokku service types.
-var knownServices = map[string]string{
-	"postgres":      "postgres",
-	"redis":         "redis",
-	"mysql":         "mysql",
-	"mariadb":       "mariadb",
-	"mongo":         "mongo",
-	"memcached":     "memcached",
-	"rabbitmq":      "rabbitmq",
-	"elasticsearch": "elasticsearch",
-	"clickhouse":    "clickhouse",
-	"couchdb":       "couchdb",
-	"meilisearch":   "meilisearch",
-	"nats":          "nats",
-	"rethinkdb":     "rethinkdb",
-	"solr":          "solr",
-	"typesense":     "typesense",
-}
-
-// servicePluginURLs maps dokku service types to their plugin install URLs.
-var servicePluginURLs = map[string]string{
-	"postgres":      "https://github.com/dokku/dokku-postgres.git",
-	"redis":         "https://github.com/dokku/dokku-redis.git",
-	"mysql":         "https://github.com/dokku/dokku-mysql.git",
-	"mariadb":       "https://github.com/dokku/dokku-mariadb.git",
-	"mongo":         "https://github.com/dokku/dokku-mongo.git",
-	"memcached":     "https://github.com/dokku/dokku-memcached.git",
-	"rabbitmq":      "https://github.com/dokku/dokku-rabbitmq.git",
-	"elasticsearch": "https://github.com/dokku/dokku-elasticsearch.git",
-	"clickhouse":    "https://github.com/dokku/dokku-clickhouse.git",
-	"couchdb":       "https://github.com/dokku/dokku-couchdb.git",
-	"meilisearch":   "https://github.com/dokku/dokku-meilisearch.git",
-	"nats":          "https://github.com/dokku/dokku-nats.git",
-	"rethinkdb":     "https://github.com/dokku/dokku-rethinkdb.git",
-	"solr":          "https://github.com/dokku/dokku-solr.git",
-	"typesense":     "https://github.com/dokku/dokku-typesense.git",
-}
+// Derived from the canonical services.Types list.
+var knownServices = func() map[string]string {
+	m := make(map[string]string, len(services.Types))
+	for _, t := range services.Types {
+		m[t] = t
+	}
+	return m
+}()
 
 // handledFields are compose service fields we parse and convert.
 var handledFields = map[string]bool{
@@ -356,7 +329,7 @@ func ImportCompose(data []byte) (*ImportResult, error) {
 			serviceTypes[name] = svcType
 
 			// Auto-add the corresponding dokku plugin
-			if pluginURL, hasPlugin := servicePluginURLs[svcType]; hasPlugin {
+			if pluginURL, hasPlugin := services.PluginURLs[svcType]; hasPlugin {
 				if df.Plugins == nil {
 					df.Plugins = map[string]schema.Plugin{}
 				}

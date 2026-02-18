@@ -1,0 +1,120 @@
+version: "1"
+
+services:
+  shared-db:
+    type: postgres
+    image_version: "16"
+  shared-cache:
+    type: redis
+    image_version: "7"
+
+plugins:
+  postgres:
+    url: https://github.com/dokku/dokku-postgres.git
+  redis:
+    url: https://github.com/dokku/dokku-redis.git
+
+global:
+  domains:
+    - dokku.example.com
+  nginx:
+    properties:
+      client-max-body-size: 25m
+
+apps:
+  frontend:
+    image: myorg/frontend:latest
+
+    domains:
+      - www.example.com
+      - example.com
+
+    ports:
+      http:80: "3000"
+      https:443: "3000"
+
+    env:
+      NODE_ENV: production
+      API_URL: https://api.example.com
+
+    letsencrypt: true
+
+    scale:
+      web: 2
+
+    network:
+      initial_network: app-network
+
+  api:
+    image: myorg/api:latest
+
+    domains:
+      - api.example.com
+
+    ports:
+      http:80: "4000"
+      https:443: "4000"
+
+    env:
+      NODE_ENV: production
+
+    secrets:
+      - DATABASE_URL
+      - REDIS_URL
+      - JWT_SECRET
+
+    links:
+      postgres: shared-db
+      redis: shared-cache
+
+    letsencrypt: true
+
+    scale:
+      web: 2
+      worker: 1
+
+    resources:
+      web:
+        limits:
+          cpu: "2.0"
+          memory: 1G
+      worker:
+        limits:
+          cpu: "1.0"
+          memory: 512M
+
+    healthchecks:
+      web:
+        - path: /health
+          timeout: 10
+          attempts: 5
+          wait: 15
+
+    scripts:
+      predeploy: node migrate.js
+
+    network:
+      initial_network: app-network
+
+    nginx:
+      properties:
+        proxy-read-timeout: 120s
+
+  admin:
+    image: myorg/admin:latest
+
+    domains:
+      - admin.example.com
+
+    ports:
+      http:80: "5000"
+      https:443: "5000"
+
+    env:
+      NODE_ENV: production
+      API_URL: https://api.example.com
+
+    letsencrypt: true
+
+    network:
+      initial_network: app-network
