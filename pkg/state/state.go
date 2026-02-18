@@ -691,10 +691,20 @@ func cleanApp(app *schema.App) {
 	// 4. Clean docker options: remove --link and -v flags that duplicate links/storage
 	cleanDockerOptions(&app.DockerOptions, app.Links, app.Storage)
 
-	// 5. Clean storage: strip -v prefix
-	for i, s := range app.Storage {
-		app.Storage[i] = strings.TrimPrefix(s, "-v ")
+	// 5. Clean storage: split compound "-v /a:/b -v /c:/d" entries and strip -v prefix
+	var cleanedStorage []string
+	for _, s := range app.Storage {
+		// Split compound entries that contain multiple -v flags
+		parts := strings.Split(s, " -v ")
+		for _, p := range parts {
+			p = strings.TrimPrefix(p, "-v ")
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cleanedStorage = append(cleanedStorage, p)
+			}
+		}
 	}
+	app.Storage = cleanedStorage
 }
 
 // extractServiceNetworks parses a comma-separated network attachment string,
@@ -740,13 +750,6 @@ func cleanDockerOptions(opts *schema.DockerOptions, links map[string]string, sto
 func filterDockerOptionFlags(options []string, links map[string]string, storage []string) []string {
 	if len(options) == 0 {
 		return nil
-	}
-
-	// Build set of known link/storage patterns to filter
-	linkPrefixes := map[string]bool{}
-	for _, svcName := range links {
-		linkPrefixes["--link dokku."] = true // catches all dokku service links
-		_ = svcName
 	}
 
 	storagePaths := map[string]bool{}

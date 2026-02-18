@@ -1441,11 +1441,34 @@ func TestCleanAppCleansStorage(t *testing.T) {
 		Storage: []string{"-v /host/path:/container/path", "-v /other:/data"},
 	}
 	cleanApp(app)
+	if len(app.Storage) != 2 {
+		t.Fatalf("expected 2 storage entries, got %d", len(app.Storage))
+	}
 	if app.Storage[0] != "/host/path:/container/path" {
 		t.Errorf("Storage[0] = %q, want /host/path:/container/path", app.Storage[0])
 	}
 	if app.Storage[1] != "/other:/data" {
 		t.Errorf("Storage[1] = %q, want /other:/data", app.Storage[1])
+	}
+}
+
+func TestCleanAppSplitsCompoundStorage(t *testing.T) {
+	app := &schema.App{
+		Storage: []string{"/mnt/data/config:/etc/app -v /mnt/data/uploads:/app/uploads -v /mnt/data/logs:/var/log/app"},
+	}
+	cleanApp(app)
+	if len(app.Storage) != 3 {
+		t.Fatalf("expected 3 storage entries, got %d: %v", len(app.Storage), app.Storage)
+	}
+	expected := []string{
+		"/mnt/data/config:/etc/app",
+		"/mnt/data/uploads:/app/uploads",
+		"/mnt/data/logs:/var/log/app",
+	}
+	for i, want := range expected {
+		if app.Storage[i] != want {
+			t.Errorf("Storage[%d] = %q, want %q", i, app.Storage[i], want)
+		}
 	}
 }
 

@@ -233,12 +233,12 @@ func diffPlugins(desired, actual *schema.Dokkufile) []Step {
 		actualPlugins = map[string]schema.Plugin{}
 	}
 
-	for name, d := range desiredPlugins {
-		if a, exists := actualPlugins[name]; !exists {
+	for name := range desiredPlugins {
+		if _, exists := actualPlugins[name]; !exists {
 			steps = append(steps, Step{Action: InstallPlugin, Service: name})
-		} else if d.URL != a.URL || d.Committish != a.Committish {
-			steps = append(steps, Step{Action: UpdatePlugin, Service: name})
 		}
+		// Don't diff URL/Committish — dokku doesn't expose the install URL,
+		// so actual plugins always have empty URL. Only detect missing plugins.
 	}
 	return steps
 }
@@ -639,7 +639,9 @@ func gitConfigEqual(a, b *schema.GitConfig) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return a.Branch == b.Branch && a.KeepGitDir == b.KeepGitDir && a.Repo == b.Repo
+	// Skip Repo comparison — dokku doesn't store the source URL,
+	// so actual.Repo is always empty. Only compare Branch and KeepGitDir.
+	return a.Branch == b.Branch && a.KeepGitDir == b.KeepGitDir
 }
 
 func networkConfigEqual(a, b *schema.NetworkConfig) bool {
@@ -697,7 +699,9 @@ func sslConfigEqual(a, b *schema.SSLConfig) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return a.CertFile == b.CertFile && a.KeyFile == b.KeyFile
+	// CertFile and KeyFile are desired-only (state reader can't read file paths).
+	// If both are non-nil, SSL is present on both sides — treat as equal.
+	return true
 }
 
 func healthchecksEqual(a, b map[string][]schema.HealthcheckConfig) bool {

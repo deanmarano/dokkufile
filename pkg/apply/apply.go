@@ -447,7 +447,7 @@ func networkConfigCommands(appName string, net *schema.NetworkConfig) [][]string
 		{"tld", net.TLD},
 	}
 	for _, p := range props {
-		if p.value != "" && p.value != "false" {
+		if p.value != "" {
 			cmds = append(cmds, []string{"network:set", appName, p.name, p.value})
 		}
 	}
@@ -471,10 +471,10 @@ func nginxConfigCommands(appName string, nginx *schema.NginxConfig) [][]string {
 
 func proxyConfigCommands(appName string, proxy *schema.ProxyConfig) [][]string {
 	var cmds [][]string
+	// Only emit enable/disable if explicitly true.
+	// Zero value (false) means "don't change" — use maintenance mode to disable proxy.
 	if proxy.Enabled {
 		cmds = append(cmds, []string{"proxy:enable", appName})
-	} else {
-		cmds = append(cmds, []string{"proxy:disable", appName})
 	}
 	if proxy.Type != "" {
 		cmds = append(cmds, []string{"proxy:set", appName, proxy.Type})
@@ -915,7 +915,7 @@ func globalNetworkCommands(net *schema.NetworkConfig) [][]string {
 		{"tld", net.TLD},
 	}
 	for _, p := range props {
-		if p.value != "" && p.value != "false" {
+		if p.value != "" {
 			cmds = append(cmds, []string{"network:set", "--global", p.name, p.value})
 		}
 	}
