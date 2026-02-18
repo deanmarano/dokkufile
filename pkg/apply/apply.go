@@ -126,12 +126,7 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 	var cmds [][]string
 	cmds = append(cmds, []string{"apps:create", appName})
 
-	// Set image
-	if app.Image != "" {
-		cmds = append(cmds, []string{"git:from-image", appName, app.Image})
-	}
-
-	// Set domains
+	// Set domains (before deploy so nginx config is correct)
 	if len(app.Domains) > 0 {
 		cmds = append(cmds, append([]string{"domains:set", appName}, app.Domains...))
 	}
@@ -169,12 +164,22 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 		cmds = append(cmds, scaleSetArgs(appName, app.Scale))
 	}
 
-	// Link services
+	// Link services (before deploy so DATABASE_URL etc. are available)
 	for svcType, svcName := range app.Links {
-		cmds = append(cmds, []string{svcType + ":link", svcName, appName})
+		cmds = append(cmds, []string{svcType + ":link", svcName, appName, "--no-restart"})
 	}
 
-	// Enable letsencrypt
+	// Scheduler config (before deploy so init_process etc. take effect)
+	if app.Scheduler != nil {
+		cmds = append(cmds, schedulerCommands(appName, app.Scheduler)...)
+	}
+
+	// Deploy image (must come after all config so the container starts correctly)
+	if app.Image != "" {
+		cmds = append(cmds, []string{"git:from-image", appName, app.Image})
+	}
+
+	// Enable letsencrypt (after deploy so nginx config exists)
 	if app.LetsEncrypt {
 		cmds = append(cmds, []string{"letsencrypt:enable", appName})
 	}
@@ -237,11 +242,6 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 	// Logs
 	if app.Logs != nil {
 		cmds = append(cmds, logCommands(appName, app.Logs)...)
-	}
-
-	// Scheduler
-	if app.Scheduler != nil {
-		cmds = append(cmds, schedulerCommands(appName, app.Scheduler)...)
 	}
 
 	// Buildpacks

@@ -165,7 +165,7 @@ func TestCreateApp(t *testing.T) {
 		{"storage:mount", "myapp", "/data:/app/data"},
 		{"docker-options:add", "myapp", "deploy", "--restart=always"},
 		{"ps:scale", "myapp", "web=2"},
-		{"postgres:link", "mydb", "myapp"},
+		{"postgres:link", "mydb", "myapp", "--no-restart"},
 		{"letsencrypt:enable", "myapp"},
 	}
 
