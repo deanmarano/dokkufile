@@ -687,8 +687,13 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-LINK_OUTPUT=$(dokku_exec postgres:info svc-link-db 2>/dev/null || echo "")
-assert_contains "service linked to app" "$LINK_OUTPUT" "svc-link-app"
+if dokku_exec postgres:linked svc-link-db svc-link-app 2>/dev/null; then
+    echo "  PASS: service linked to app"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: service linked to app"
+    FAIL=$((FAIL + 1))
+fi
 
 # Cleanup
 dokku_exec postgres:unlink svc-link-db svc-link-app 2>/dev/null || true
