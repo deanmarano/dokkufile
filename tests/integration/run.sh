@@ -104,7 +104,7 @@ dokku_exec config:set --no-restart web-app DATABASE_URL=postgres://localhost/myd
 # We'll test it but tolerate failure on some versions.
 dokku_exec ps:scale web-app web=2 worker=1 2>/dev/null || true
 
-OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
 
 assert_contains "app name present" "$OUTPUT" "web-app"
 assert_contains "image present" "$OUTPUT" "nginx"
@@ -123,7 +123,7 @@ dokku_exec nginx:set web-app client-max-body-size 50m 2>/dev/null || true
 dokku_exec nginx:set web-app proxy-read-timeout 120s 2>/dev/null || true
 dokku_exec nginx:set web-app hsts true 2>/dev/null || true
 
-OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
 
 # These may not be present if nginx:set isn't available in this version
 if docker exec "$CONTAINER_NAME" dokku nginx:set web-app 2>/dev/null | grep -q "client-max-body-size"; then
@@ -141,7 +141,7 @@ echo ""
 echo "=== Test 3: Builder configuration ==="
 
 if dokku_exec builder:set web-app selected dockerfile 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "builder selected" "$OUTPUT" "dockerfile"
 else
     echo "  SKIP: builder:set not available in $DOKKU_VERSION"
@@ -155,7 +155,7 @@ echo ""
 echo "=== Test 4: Process management ==="
 
 if dokku_exec ps:set web-app restart-policy on-failure:3 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "restart policy" "$OUTPUT" "on-failure"
 else
     echo "  SKIP: ps:set restart-policy not available in $DOKKU_VERSION"
@@ -169,7 +169,7 @@ echo ""
 echo "=== Test 5: Deploy locking ==="
 
 if dokku_exec apps:lock web-app 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "locked" "$OUTPUT" "locked"
     # Unlock for further tests
     dokku_exec apps:unlock web-app 2>/dev/null || true
@@ -185,7 +185,7 @@ echo ""
 echo "=== Test 6: Storage mounts ==="
 
 dokku_exec storage:mount web-app /var/lib/dokku/data/storage/web-app:/app/data 2>/dev/null || true
-OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
 assert_contains "storage mount" "$OUTPUT" "/app/data"
 
 # ============================================================
@@ -195,7 +195,7 @@ echo ""
 echo "=== Test 7: Docker options ==="
 
 dokku_exec docker-options:add web-app deploy "--restart=always" 2>/dev/null || true
-OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
 assert_contains "docker option" "$OUTPUT" "restart=always"
 
 # ============================================================
@@ -205,7 +205,7 @@ echo ""
 echo "=== Test 8: Plan (no drift) ==="
 
 # Export current state, then plan against it — should show no changes
-docker exec "$CONTAINER_NAME" dokkufile inspect > /tmp/dokkufile-state.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-state.yml 2>/dev/null
 docker cp /tmp/dokkufile-state.yml "$CONTAINER_NAME":/tmp/dokkufile-state.yml
 
 PLAN_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile plan /tmp/dokkufile-state.yml 2>/dev/null || echo "plan-error")
@@ -229,7 +229,7 @@ dokku_exec git:from-image api-app node:20 || true
 dokku_exec domains:set api-app api.example.com || true
 dokku_exec config:set --no-restart api-app PORT=3000
 
-OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
 assert_contains "second app present" "$OUTPUT" "api-app"
 assert_contains "second app domain" "$OUTPUT" "api.example.com"
 assert_contains "both apps present" "$OUTPUT" "web-app"
@@ -242,7 +242,7 @@ echo "=== Test 10: Maintenance mode ==="
 
 # Maintenance is a community plugin, may not be installed
 if dokku_exec maintenance:enable web-app 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "maintenance enabled" "$OUTPUT" "maintenance"
     dokku_exec maintenance:disable web-app 2>/dev/null || true
 else
@@ -257,7 +257,7 @@ echo ""
 echo "=== Test 11: Ports configuration ==="
 
 if dokku_exec ports:set web-app http:80:5000 2>/dev/null || dokku_exec proxy:ports-set web-app http:80:5000 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "port 80" "$OUTPUT" "80"
     assert_contains "port 5000" "$OUTPUT" "5000"
 else
@@ -275,7 +275,7 @@ if dokku_exec plugin:installed postgres 2>/dev/null; then
     dokku_exec postgres:create mydb 2>/dev/null || true
     dokku_exec postgres:link mydb web-app 2>/dev/null || true
 
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "service mydb present" "$OUTPUT" "mydb"
     assert_contains "link in app" "$OUTPUT" "postgres"
 
@@ -323,7 +323,7 @@ assert_contains "built present" "$VERSION_OUTPUT" "built:"
 echo ""
 echo "=== Test 15: Plan --format json ==="
 
-docker exec "$CONTAINER_NAME" dokkufile inspect > /tmp/dokkufile-state.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-state.yml 2>/dev/null
 docker cp /tmp/dokkufile-state.yml "$CONTAINER_NAME":/tmp/dokkufile-state.yml
 
 JSON_PLAN=$(docker exec "$CONTAINER_NAME" dokkufile plan --format json /tmp/dokkufile-state.yml 2>/dev/null || echo "plan-error")
@@ -343,7 +343,7 @@ echo ""
 echo "=== Test 16: Validate command ==="
 
 # Valid file should pass
-docker exec "$CONTAINER_NAME" dokkufile inspect > /tmp/dokkufile-valid.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-valid.yml 2>/dev/null
 docker cp /tmp/dokkufile-valid.yml "$CONTAINER_NAME":/tmp/dokkufile-valid.yml
 if docker exec "$CONTAINER_NAME" dokkufile validate /tmp/dokkufile-valid.yml 2>/dev/null; then
     echo "  PASS: validate passes for valid file"
@@ -376,7 +376,7 @@ echo ""
 echo "=== Test 17: Apply --dry-run ==="
 
 # Modify the state file to create drift, then dry-run should show commands without executing
-docker exec "$CONTAINER_NAME" dokkufile inspect > /tmp/dokkufile-dryrun.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-dryrun.yml 2>/dev/null
 # Add a new env var to create drift
 docker exec "$CONTAINER_NAME" bash -c 'sed -i "s/DATABASE_URL/DATABASE_URL: postgres:\/\/localhost\/mydb\n      NEW_VAR/" /tmp/dokkufile-dryrun.yml' 2>/dev/null || true
 DRYRUN_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply --dry-run /tmp/dokkufile-dryrun.yml 2>/dev/null || echo "dry-run-output")
@@ -395,7 +395,7 @@ echo ""
 echo "=== Test 18: Git configuration ==="
 
 if dokku_exec git:set web-app deploy-branch main 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "git deploy branch" "$OUTPUT" "main"
 else
     echo "  SKIP: git:set deploy-branch not available in $DOKKU_VERSION"
@@ -409,7 +409,7 @@ echo ""
 echo "=== Test 19: Resource limits ==="
 
 if dokku_exec resource:limit web-app --memory 512 --process-type web 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect 2>/dev/null)
+    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
     assert_contains "resource limit memory" "$OUTPUT" "512"
 else
     echo "  SKIP: resource:limit not available in $DOKKU_VERSION"
@@ -422,7 +422,7 @@ fi
 echo ""
 echo "=== Test 20: Inspect --format json ==="
 
-JSON_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --format json 2>/dev/null)
+JSON_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global --format json 2>/dev/null)
 if echo "$JSON_OUTPUT" | grep -q '"apps"'; then
     echo "  PASS: inspect --format json produces valid JSON"
     PASS=$((PASS + 1))
