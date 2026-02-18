@@ -14,7 +14,6 @@ CONTAINER_NAME="dokkufile-test-${DOKKU_VERSION//\./-}"
 BINARY="dokkufile-test"
 PASS=0
 FAIL=0
-SKIP=0
 
 cleanup() {
     echo ""
@@ -33,6 +32,7 @@ assert_contains() {
         PASS=$((PASS + 1))
     else
         echo "  FAIL: $label (expected to find '$needle')"
+        echo "  GOT: $haystack"
         FAIL=$((FAIL + 1))
     fi
 }
@@ -87,6 +87,14 @@ echo "Dokku version: $DOKKU_ACTUAL_VERSION"
 docker cp "$BINARY" "$CONTAINER_NAME":/usr/local/bin/dokkufile
 docker exec "$CONTAINER_NAME" chmod +x /usr/local/bin/dokkufile
 
+# --- Install plugins ---
+echo ""
+echo "=== Installing plugins ==="
+echo "Installing postgres plugin..."
+docker exec "$CONTAINER_NAME" dokku plugin:install https://github.com/dokku/dokku-postgres.git postgres 2>&1 || true
+echo "Installing maintenance plugin..."
+docker exec "$CONTAINER_NAME" dokku plugin:install https://github.com/dokku/dokku-maintenance.git maintenance 2>&1 || true
+
 # ============================================================
 # Test 1: Basic app with image, domains, env, scale
 # ============================================================
@@ -125,13 +133,16 @@ dokku_exec nginx:set web-app hsts true 2>/dev/null || true
 
 OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
 
-# These may not be present if nginx:set isn't available in this version
-if docker exec "$CONTAINER_NAME" dokku nginx:set web-app 2>/dev/null | grep -q "client-max-body-size"; then
+# Verify via nginx:report that properties were actually set
+if docker exec "$CONTAINER_NAME" dokku nginx:report web-app 2>/dev/null | grep -qi "client.max.body.size.*50m"; then
     assert_contains "nginx client-max-body-size" "$OUTPUT" "client-max-body-size"
     assert_contains "nginx proxy-read-timeout" "$OUTPUT" "proxy-read-timeout"
 else
-    echo "  SKIP: nginx:set extended properties not available in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
+    # nginx:report shows the property but dokkufile inspect might format it differently
+    # Check the raw nginx:report output for the property name
+    NGINX_REPORT=$(docker exec "$CONTAINER_NAME" dokku nginx:report web-app 2>/dev/null || echo "")
+    assert_contains "nginx client-max-body-size in report" "$NGINX_REPORT" "50m"
+    assert_contains "nginx proxy-read-timeout in report" "$NGINX_REPORT" "120s"
 fi
 
 # ============================================================
@@ -140,13 +151,9 @@ fi
 echo ""
 echo "=== Test 3: Builder configuration ==="
 
-if dokku_exec builder:set web-app selected dockerfile 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "builder selected" "$OUTPUT" "dockerfile"
-else
-    echo "  SKIP: builder:set not available in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+dokku_exec builder:set web-app selected dockerfile 2>/dev/null || true
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "builder selected" "$OUTPUT" "dockerfile"
 
 # ============================================================
 # Test 4: Process management
@@ -154,13 +161,9 @@ fi
 echo ""
 echo "=== Test 4: Process management ==="
 
-if dokku_exec ps:set web-app restart-policy on-failure:3 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "restart policy" "$OUTPUT" "on-failure"
-else
-    echo "  SKIP: ps:set restart-policy not available in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+dokku_exec ps:set web-app restart-policy on-failure:3 2>/dev/null || true
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "restart policy" "$OUTPUT" "on-failure"
 
 # ============================================================
 # Test 5: Deploy locking
@@ -168,15 +171,11 @@ fi
 echo ""
 echo "=== Test 5: Deploy locking ==="
 
-if dokku_exec apps:lock web-app 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "locked" "$OUTPUT" "locked"
-    # Unlock for further tests
-    dokku_exec apps:unlock web-app 2>/dev/null || true
-else
-    echo "  SKIP: apps:lock not available in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+dokku_exec apps:lock web-app 2>/dev/null || true
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "locked" "$OUTPUT" "locked"
+# Unlock for further tests
+dokku_exec apps:unlock web-app 2>/dev/null || true
 
 # ============================================================
 # Test 6: Storage mounts
@@ -240,15 +239,10 @@ assert_contains "both apps present" "$OUTPUT" "web-app"
 echo ""
 echo "=== Test 10: Maintenance mode ==="
 
-# Maintenance is a community plugin, may not be installed
-if dokku_exec maintenance:enable web-app 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "maintenance enabled" "$OUTPUT" "maintenance"
-    dokku_exec maintenance:disable web-app 2>/dev/null || true
-else
-    echo "  SKIP: maintenance plugin not installed in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+dokku_exec maintenance:enable web-app 2>/dev/null || true
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "maintenance enabled" "$OUTPUT" "maintenance"
+dokku_exec maintenance:disable web-app 2>/dev/null || true
 
 # ============================================================
 # Test 11: Ports configuration
@@ -256,14 +250,11 @@ fi
 echo ""
 echo "=== Test 11: Ports configuration ==="
 
-if dokku_exec ports:set web-app http:80:5000 2>/dev/null || dokku_exec proxy:ports-set web-app http:80:5000 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "port 80" "$OUTPUT" "80"
-    assert_contains "port 5000" "$OUTPUT" "5000"
-else
-    echo "  SKIP: ports:set not available in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+# ports:set may return non-zero due to nginx rebuild in Docker, but still works
+dokku_exec ports:set web-app http:80:5000 2>/dev/null || dokku_exec proxy:ports-set web-app http:80:5000 2>/dev/null || true
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "port 80" "$OUTPUT" "80"
+assert_contains "port 5000" "$OUTPUT" "5000"
 
 # ============================================================
 # Test 12: Service linking (postgres)
@@ -271,21 +262,16 @@ fi
 echo ""
 echo "=== Test 12: Service linking ==="
 
-if dokku_exec plugin:installed postgres 2>/dev/null; then
-    dokku_exec postgres:create mydb 2>/dev/null || true
-    dokku_exec postgres:link mydb web-app 2>/dev/null || true
+dokku_exec postgres:create mydb 2>/dev/null || true
+dokku_exec postgres:link mydb web-app 2>/dev/null || true
 
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "service mydb present" "$OUTPUT" "mydb"
-    assert_contains "link in app" "$OUTPUT" "postgres"
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "service mydb present" "$OUTPUT" "mydb"
+assert_contains "link in app" "$OUTPUT" "postgres"
 
-    # Cleanup
-    dokku_exec postgres:unlink mydb web-app 2>/dev/null || true
-    dokku_exec postgres:destroy mydb --force 2>/dev/null || true
-else
-    echo "  SKIP: postgres plugin not installed in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+# Cleanup
+dokku_exec postgres:unlink mydb web-app 2>/dev/null || true
+dokku_exec postgres:destroy mydb --force 2>/dev/null || true
 
 # ============================================================
 # Test 13: Inspect --app filter
@@ -394,13 +380,9 @@ fi
 echo ""
 echo "=== Test 18: Git configuration ==="
 
-if dokku_exec git:set web-app deploy-branch main 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "git deploy branch" "$OUTPUT" "main"
-else
-    echo "  SKIP: git:set deploy-branch not available in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+dokku_exec git:set web-app deploy-branch main 2>/dev/null || true
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "git deploy branch" "$OUTPUT" "main"
 
 # ============================================================
 # Test 19: Resource limits
@@ -408,13 +390,9 @@ fi
 echo ""
 echo "=== Test 19: Resource limits ==="
 
-if dokku_exec resource:limit web-app --memory 512 --process-type web 2>/dev/null; then
-    OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
-    assert_contains "resource limit memory" "$OUTPUT" "512"
-else
-    echo "  SKIP: resource:limit not available in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
+dokku_exec resource:limit web-app --memory 512 --process-type web 2>/dev/null || true
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+assert_contains "resource limit memory" "$OUTPUT" "512"
 
 # ============================================================
 # Test 20: Inspect JSON output
@@ -480,12 +458,37 @@ APPLY2_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-test.ym
 assert_contains "idempotent apply" "$APPLY2_OUTPUT" "No changes needed"
 
 # ============================================================
-# Test 23: Apply updates existing app
+# Test 23: Apply updates existing app (env change)
 # ============================================================
 echo ""
-echo "=== Test 23: Apply updates existing app ==="
+echo "=== Test 23: Apply updates existing app (env) ==="
 
-docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-update.yml << EOF
+# Only change env vars — no domain changes — to avoid nginx rebuild failures
+# on older Dokku versions causing the executor to bail before reaching config:set
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-env-update.yml << EOF
+version: "1"
+apps:
+  apply-test:
+    image: nginx:latest
+    domains:
+      - apply-test.dokku.me
+    env:
+      APP_ENV: staging
+      NEW_VAR: hello
+EOF'
+
+UPDATE_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-env-update.yml 2>&1 || true)
+# Should show some changes were applied (not "No changes needed")
+assert_not_contains "update is not no-op" "$UPDATE_OUTPUT" "No changes needed"
+
+ENV_OUTPUT=$(dokku_exec config:get apply-test APP_ENV 2>/dev/null || echo "")
+assert_contains "env updated" "$ENV_OUTPUT" "staging"
+
+NEW_VAR_OUTPUT=$(dokku_exec config:get apply-test NEW_VAR 2>/dev/null || echo "")
+assert_contains "new env var added" "$NEW_VAR_OUTPUT" "hello"
+
+# Now add a domain in a separate apply to test domain updates
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-domain-update.yml << EOF
 version: "1"
 apps:
   apply-test:
@@ -498,32 +501,10 @@ apps:
       NEW_VAR: hello
 EOF'
 
-UPDATE_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-update.yml 2>&1 || true)
-# Should show some changes were applied (not "No changes needed")
-assert_not_contains "update is not no-op" "$UPDATE_OUTPUT" "No changes needed"
+docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-domain-update.yml 2>&1 >/dev/null || true
 
 DOMAIN_OUTPUT=$(dokku_exec domains:report apply-test 2>/dev/null || echo "")
 assert_contains "new domain added" "$DOMAIN_OUTPUT" "apply-test-v2.dokku.me"
-
-# Env update may fail silently on older Dokku versions (0.34.x) where
-# config:set --no-restart during apply doesn't take effect reliably.
-ENV_OUTPUT=$(dokku_exec config:get apply-test APP_ENV 2>/dev/null || echo "")
-if echo "$ENV_OUTPUT" | grep -q "staging"; then
-    echo "  PASS: env updated"
-    PASS=$((PASS + 1))
-else
-    echo "  SKIP: env update not effective on $DOKKU_VERSION (got: $ENV_OUTPUT)"
-    SKIP=$((SKIP + 1))
-fi
-
-NEW_VAR_OUTPUT=$(dokku_exec config:get apply-test NEW_VAR 2>/dev/null || echo "")
-if echo "$NEW_VAR_OUTPUT" | grep -q "hello"; then
-    echo "  PASS: new env var added"
-    PASS=$((PASS + 1))
-else
-    echo "  SKIP: new env var not set on $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
-fi
 
 # ============================================================
 # Test 24: Plan detects drift
@@ -534,9 +515,9 @@ echo "=== Test 24: Plan detects drift ==="
 # Manually add a domain to create drift from the dokkufile
 dokku_exec domains:add apply-test drifted.dokku.me 2>/dev/null || true
 
-# Plan against the update file (which doesn't include drifted.dokku.me)
+# Plan against the domain-update file (which doesn't include drifted.dokku.me)
 PLAN_EXIT=0
-PLAN_DRIFT=$(docker exec "$CONTAINER_NAME" dokkufile plan /tmp/apply-update.yml 2>&1) || PLAN_EXIT=$?
+PLAN_DRIFT=$(docker exec "$CONTAINER_NAME" dokkufile plan /tmp/apply-domain-update.yml 2>&1) || PLAN_EXIT=$?
 
 if [ "$PLAN_EXIT" -eq 2 ]; then
     echo "  PASS: plan exits with code 2 on drift"
@@ -670,11 +651,10 @@ fi
 echo ""
 echo "=== Test 28: Apply with service linking ==="
 
-if dokku_exec plugin:installed postgres 2>/dev/null; then
-    dokku_exec apps:destroy svc-link-app --force 2>/dev/null || true
-    dokku_exec postgres:destroy svc-link-db --force 2>/dev/null || true
+dokku_exec apps:destroy svc-link-app --force 2>/dev/null || true
+dokku_exec postgres:destroy svc-link-db --force 2>/dev/null || true
 
-    docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-service.yml << EOF
+docker exec "$CONTAINER_NAME" bash -c 'cat > /tmp/apply-service.yml << EOF
 version: "1"
 services:
   svc-link-db:
@@ -688,36 +668,32 @@ apps:
       svc-link-db: postgres
 EOF'
 
-    SVC_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-service.yml 2>&1 || true)
-    assert_contains "service apply mentions service" "$SVC_OUTPUT" "svc-link-db"
+SVC_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-service.yml 2>&1 || true)
+assert_contains "service apply mentions service" "$SVC_OUTPUT" "svc-link-db"
 
-    if dokku_exec postgres:exists svc-link-db 2>/dev/null; then
-        echo "  PASS: postgres service created"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: postgres service not created"
-        FAIL=$((FAIL + 1))
-    fi
-
-    if dokku_exec apps:exists svc-link-app 2>/dev/null; then
-        echo "  PASS: linked app created"
-        PASS=$((PASS + 1))
-    else
-        echo "  FAIL: linked app not created"
-        FAIL=$((FAIL + 1))
-    fi
-
-    LINK_OUTPUT=$(dokku_exec postgres:info svc-link-db 2>/dev/null || echo "")
-    assert_contains "service linked to app" "$LINK_OUTPUT" "svc-link-app"
-
-    # Cleanup
-    dokku_exec postgres:unlink svc-link-db svc-link-app 2>/dev/null || true
-    dokku_exec postgres:destroy svc-link-db --force 2>/dev/null || true
-    dokku_exec apps:destroy svc-link-app --force 2>/dev/null || true
+if dokku_exec postgres:exists svc-link-db 2>/dev/null; then
+    echo "  PASS: postgres service created"
+    PASS=$((PASS + 1))
 else
-    echo "  SKIP: postgres plugin not installed in $DOKKU_VERSION"
-    SKIP=$((SKIP + 1))
+    echo "  FAIL: postgres service not created"
+    FAIL=$((FAIL + 1))
 fi
+
+if dokku_exec apps:exists svc-link-app 2>/dev/null; then
+    echo "  PASS: linked app created"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: linked app not created"
+    FAIL=$((FAIL + 1))
+fi
+
+LINK_OUTPUT=$(dokku_exec postgres:info svc-link-db 2>/dev/null || echo "")
+assert_contains "service linked to app" "$LINK_OUTPUT" "svc-link-app"
+
+# Cleanup
+dokku_exec postgres:unlink svc-link-db svc-link-app 2>/dev/null || true
+dokku_exec postgres:destroy svc-link-db --force 2>/dev/null || true
+dokku_exec apps:destroy svc-link-app --force 2>/dev/null || true
 
 # ============================================================
 # Summary
@@ -728,7 +704,6 @@ echo "  Dokku $DOKKU_VERSION Integration Tests"
 echo "========================================"
 echo "  PASS: $PASS"
 echo "  FAIL: $FAIL"
-echo "  SKIP: $SKIP"
 echo "========================================"
 
 if [ "$FAIL" -gt 0 ]; then
