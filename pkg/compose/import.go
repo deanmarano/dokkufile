@@ -16,27 +16,94 @@ type ComposeFile struct {
 
 // ComposeService represents a single service in a docker-compose file.
 type ComposeService struct {
-	Image       string                 `yaml:"image"`
-	Ports       []string               `yaml:"ports"`
-	Environment map[string]string      `yaml:"environment"`
-	Volumes     []string               `yaml:"volumes"`
-	DependsOn   []string               `yaml:"depends_on"`
-	Healthcheck *ComposeHealthcheck    `yaml:"healthcheck"`
-	Deploy      *ComposeDeploy         `yaml:"deploy"`
+	Image       string                `yaml:"image"`
+	Ports       []string              `yaml:"ports"`
+	Environment map[string]string     `yaml:"environment"`
+	Volumes     []string              `yaml:"volumes"`
+	DependsOn   ComposeDependsOn      `yaml:"depends_on"`
+	Healthcheck *ComposeHealthcheck   `yaml:"healthcheck"`
+	Deploy      *ComposeDeploy        `yaml:"deploy"`
+	Restart     string                `yaml:"restart"`
+	Build       *ComposeBuild         `yaml:"build"`
+	CapAdd      []string              `yaml:"cap_add"`
+	CapDrop     []string              `yaml:"cap_drop"`
+	Networks    ComposeNetworks       `yaml:"networks"`
+	Logging     *ComposeLogging       `yaml:"logging"`
+	Entrypoint  interface{}           `yaml:"entrypoint"`
+}
+
+// ComposeBuild represents docker-compose build configuration.
+type ComposeBuild struct {
+	Context    string `yaml:"context"`
+	Dockerfile string `yaml:"dockerfile"`
+}
+
+// ComposeLogging represents docker-compose logging configuration.
+type ComposeLogging struct {
+	Options map[string]string `yaml:"options"`
+}
+
+// ComposeNetworks is a custom type that handles both list and map forms of networks.
+type ComposeNetworks []string
+
+// UnmarshalYAML handles both list form (networks: [net1]) and map form (networks: {net1: {}}).
+func (n *ComposeNetworks) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*n = list
+	case yaml.MappingNode:
+		var m map[string]interface{}
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		for k := range m {
+			*n = append(*n, k)
+		}
+	}
+	return nil
+}
+
+// ComposeDependsOn is a custom type that handles both list and map forms of depends_on.
+type ComposeDependsOn []string
+
+// UnmarshalYAML handles both list form (depends_on: [db]) and map form (depends_on: {db: {condition: ...}}).
+func (d *ComposeDependsOn) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*d = list
+	case yaml.MappingNode:
+		var m map[string]interface{}
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		for k := range m {
+			*d = append(*d, k)
+		}
+	}
+	return nil
 }
 
 // ComposeHealthcheck represents a docker-compose healthcheck configuration.
 type ComposeHealthcheck struct {
-	Test     []string `yaml:"test"`
-	Interval string   `yaml:"interval"`
-	Timeout  string   `yaml:"timeout"`
-	Retries  int      `yaml:"retries"`
+	Test        []string `yaml:"test"`
+	Interval    string   `yaml:"interval"`
+	Timeout     string   `yaml:"timeout"`
+	Retries     int      `yaml:"retries"`
+	StartPeriod string   `yaml:"start_period"`
 }
 
 // ComposeDeploy represents docker-compose deploy configuration.
 type ComposeDeploy struct {
-	Replicas int                    `yaml:"replicas"`
-	Resources *ComposeResources     `yaml:"resources"`
+	Replicas  int               `yaml:"replicas"`
+	Resources *ComposeResources `yaml:"resources"`
 }
 
 // ComposeResources represents docker-compose resource constraints.
@@ -187,6 +254,72 @@ func ImportCompose(data []byte) (*schema.Dokkufile, error) {
 			}
 		}
 
+		// Convert restart policy
+		if svc.Restart != "" && svc.Restart != "no" {
+			policy := svc.Restart
+			if policy == "on-failure" {
+				policy = "on-failure:10"
+			}
+			app.Process = &schema.ProcessConfig{
+				RestartPolicy: policy,
+			}
+		}
+
+		// Convert build dockerfile (only if no image is set)
+		if svc.Build != nil && svc.Build.Dockerfile != "" && svc.Image == "" {
+			app.Builder = &schema.BuilderConfig{
+				Selected:       "dockerfile",
+				DockerfilePath: svc.Build.Dockerfile,
+			}
+		}
+
+		// Convert cap_add and cap_drop to docker options
+		var dockerOpts []string
+		for _, cap := range svc.CapAdd {
+			dockerOpts = append(dockerOpts, "--cap-add="+cap)
+		}
+		for _, cap := range svc.CapDrop {
+			dockerOpts = append(dockerOpts, "--cap-drop="+cap)
+		}
+
+		// Convert entrypoint to docker option
+		if svc.Entrypoint != nil {
+			switch v := svc.Entrypoint.(type) {
+			case string:
+				if v != "" {
+					dockerOpts = append(dockerOpts, "--entrypoint="+v)
+				}
+			case []interface{}:
+				if len(v) > 0 {
+					parts := make([]string, len(v))
+					for i, p := range v {
+						parts[i] = fmt.Sprintf("%v", p)
+					}
+					dockerOpts = append(dockerOpts, "--entrypoint="+strings.Join(parts, " "))
+				}
+			}
+		}
+
+		if len(dockerOpts) > 0 {
+			app.DockerOptions.Deploy = append(app.DockerOptions.Deploy, dockerOpts...)
+		}
+
+		// Convert first network to initial_network
+		if len(svc.Networks) > 0 {
+			app.Network = &schema.NetworkConfig{
+				InitialNetwork: svc.Networks[0],
+			}
+		}
+
+		// Convert logging max-size
+		if svc.Logging != nil && svc.Logging.Options != nil {
+			if maxSize, ok := svc.Logging.Options["max-size"]; ok {
+				app.Logs = &schema.LogConfig{
+					MaxSize: maxSize,
+				}
+			}
+		}
+
 		df.Apps[name] = app
 	}
 
@@ -252,6 +385,10 @@ func convertHealthcheck(hc *ComposeHealthcheck) *schema.HealthcheckConfig {
 
 	if hc.Interval != "" {
 		cfg.Wait = parseDurationSeconds(hc.Interval)
+	}
+
+	if hc.StartPeriod != "" {
+		cfg.InitialDelay = parseDurationSeconds(hc.StartPeriod)
 	}
 
 	return cfg

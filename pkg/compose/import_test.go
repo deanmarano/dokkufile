@@ -402,3 +402,212 @@ services:
 		t.Errorf("expected link postgres->db, got %v", app.Links)
 	}
 }
+
+func TestAppWithRestartPolicy(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    restart: always
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Process == nil {
+		t.Fatal("expected process config to be set")
+	}
+	if app.Process.RestartPolicy != "always" {
+		t.Errorf("expected restart policy 'always', got %q", app.Process.RestartPolicy)
+	}
+}
+
+func TestAppWithBuildDockerfile(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Builder == nil {
+		t.Fatal("expected builder config to be set")
+	}
+	if app.Builder.DockerfilePath != "Dockerfile.prod" {
+		t.Errorf("expected dockerfile path 'Dockerfile.prod', got %q", app.Builder.DockerfilePath)
+	}
+	if app.Builder.Selected != "dockerfile" {
+		t.Errorf("expected builder selected 'dockerfile', got %q", app.Builder.Selected)
+	}
+}
+
+func TestAppWithCapAdd(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    cap_add:
+      - NET_ADMIN
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--cap-add=NET_ADMIN" {
+		t.Errorf("expected docker option --cap-add=NET_ADMIN, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithCapDrop(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    cap_drop:
+      - SYS_ADMIN
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if len(app.DockerOptions.Deploy) != 1 || app.DockerOptions.Deploy[0] != "--cap-drop=SYS_ADMIN" {
+		t.Errorf("expected docker option --cap-drop=SYS_ADMIN, got %v", app.DockerOptions.Deploy)
+	}
+}
+
+func TestAppWithNetwork(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    networks:
+      - mynet
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Network == nil {
+		t.Fatal("expected network config to be set")
+	}
+	if app.Network.InitialNetwork != "mynet" {
+		t.Errorf("expected initial network 'mynet', got %q", app.Network.InitialNetwork)
+	}
+}
+
+func TestAppWithLoggingMaxSize(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    logging:
+      options:
+        max-size: 50m
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	if app.Logs == nil {
+		t.Fatal("expected logs config to be set")
+	}
+	if app.Logs.MaxSize != "50m" {
+		t.Errorf("expected max size '50m', got %q", app.Logs.MaxSize)
+	}
+}
+
+func TestAppWithHealthcheckStartPeriod(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    image: myapp:latest
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app := df.Apps["web"]
+	hcs := app.Healthchecks["web"]
+	if len(hcs) != 1 {
+		t.Fatalf("expected 1 healthcheck, got %d", len(hcs))
+	}
+	if hcs[0].InitialDelay != 15 {
+		t.Errorf("expected initial delay 15, got %d", hcs[0].InitialDelay)
+	}
+}
+
+func TestAppWithDependsOnMap(t *testing.T) {
+	input := `
+version: "3"
+services:
+  db:
+    image: postgres:15
+  app:
+    image: myapp:latest
+    depends_on:
+      db:
+        condition: service_healthy
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	app, ok := df.Apps["app"]
+	if !ok {
+		t.Fatal("expected app 'app' to exist")
+	}
+	if app.Links["postgres"] != "db" {
+		t.Errorf("expected link postgres->db, got %v", app.Links)
+	}
+}
+
+func TestAppWithBuildNoImage(t *testing.T) {
+	input := `
+version: "3"
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, ok := df.Apps["web"]
+	if !ok {
+		t.Fatal("expected app 'web' to exist")
+	}
+}
