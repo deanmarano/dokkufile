@@ -665,7 +665,7 @@ apps:
     domains:
       - svc-link.dokku.me
     links:
-      svc-link-db: postgres
+      postgres: svc-link-db
 EOF'
 
 SVC_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-service.yml 2>&1 || true)
