@@ -13,6 +13,7 @@ import (
 func NewApplyCmd() *cobra.Command {
 	var file string
 	var dryRun bool
+	var appFilter string
 
 	cmd := &cobra.Command{
 		Use:   "apply [file]",
@@ -25,6 +26,13 @@ func NewApplyCmd() *cobra.Command {
 			desired, err := schema.Load(file)
 			if err != nil {
 				return fmt.Errorf("loading dokkufile: %w", err)
+			}
+
+			if appFilter != "" {
+				if _, ok := desired.Apps[appFilter]; !ok {
+					return fmt.Errorf("app %q not found in dokkufile", appFilter)
+				}
+				desired = desired.FilterByApp(appFilter)
 			}
 
 			runner := &state.ExecRunner{}
@@ -51,5 +59,6 @@ func NewApplyCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&file, "file", "f", "Dokkufile.yml", "path to Dokkufile")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print commands without executing them")
+	cmd.Flags().StringVar(&appFilter, "app", "", "scope apply to a single app and its linked services")
 	return cmd
 }

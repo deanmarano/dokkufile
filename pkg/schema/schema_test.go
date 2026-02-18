@@ -257,6 +257,68 @@ func TestValidateMailWithoutMailServicesMapOK(t *testing.T) {
 	}
 }
 
+// --- FilterByApp tests ---
+
+func TestFilterByAppIncludesPlugins(t *testing.T) {
+	df := &Dokkufile{
+		Version:  "1",
+		Services: map[string]Service{"db": {Type: "postgres"}, "cache": {Type: "redis"}},
+		Plugins: map[string]Plugin{
+			"postgres": {URL: "https://github.com/dokku/dokku-postgres.git"},
+			"redis":    {URL: "https://github.com/dokku/dokku-redis.git"},
+		},
+		Apps: map[string]App{
+			"web": {Links: map[string]string{"postgres": "db"}},
+			"api": {Links: map[string]string{"redis": "cache"}},
+		},
+	}
+
+	filtered := df.FilterByApp("web")
+	if len(filtered.Apps) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(filtered.Apps))
+	}
+	if len(filtered.Services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(filtered.Services))
+	}
+	if _, ok := filtered.Services["db"]; !ok {
+		t.Error("expected db service")
+	}
+	if len(filtered.Plugins) != 1 {
+		t.Fatalf("expected 1 plugin, got %d", len(filtered.Plugins))
+	}
+	if _, ok := filtered.Plugins["postgres"]; !ok {
+		t.Error("expected postgres plugin")
+	}
+}
+
+func TestFilterByAppPreservesGlobal(t *testing.T) {
+	df := &Dokkufile{
+		Version: "1",
+		Global:  &GlobalConfig{Domains: []string{"dokku.example.com"}},
+		Apps:    map[string]App{"web": {Image: "myapp"}},
+	}
+
+	filtered := df.FilterByApp("web")
+	if filtered.Global == nil {
+		t.Fatal("expected global config to be preserved")
+	}
+	if len(filtered.Global.Domains) != 1 || filtered.Global.Domains[0] != "dokku.example.com" {
+		t.Errorf("expected global domains preserved, got %v", filtered.Global.Domains)
+	}
+}
+
+func TestFilterByAppNotFound(t *testing.T) {
+	df := &Dokkufile{
+		Version: "1",
+		Apps:    map[string]App{"web": {}},
+	}
+
+	filtered := df.FilterByApp("nonexistent")
+	if len(filtered.Apps) != 0 {
+		t.Fatalf("expected 0 apps, got %d", len(filtered.Apps))
+	}
+}
+
 func TestValidateLinkToUndeclaredServiceOK(t *testing.T) {
 	// Linking to a service not in the Dokkufile is allowed (it may already exist on the server).
 	df := &Dokkufile{

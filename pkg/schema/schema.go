@@ -302,6 +302,63 @@ func (df *Dokkufile) Validate() error {
 	return nil
 }
 
+// FilterByApp returns a new Dokkufile containing only the specified app
+// and its linked services, plugins, mail services, and auth config.
+func (df *Dokkufile) FilterByApp(appName string) *Dokkufile {
+	app, ok := df.Apps[appName]
+	if !ok {
+		return &Dokkufile{Version: df.Version}
+	}
+
+	filtered := &Dokkufile{
+		Version: df.Version,
+		Global:  df.Global,
+		Apps:    map[string]App{appName: app},
+	}
+
+	// Include linked services and their plugins
+	if len(app.Links) > 0 {
+		filtered.Services = map[string]Service{}
+		for _, svcName := range app.Links {
+			if svc, ok := df.Services[svcName]; ok {
+				filtered.Services[svcName] = svc
+				// Include the plugin for this service type
+				if df.Plugins != nil {
+					if plugin, ok := df.Plugins[svc.Type]; ok {
+						if filtered.Plugins == nil {
+							filtered.Plugins = map[string]Plugin{}
+						}
+						filtered.Plugins[svc.Type] = plugin
+					}
+				}
+			}
+		}
+	}
+
+	// Include linked mail service
+	if app.Mail != "" && df.MailServices != nil {
+		if svc, ok := df.MailServices[app.Mail]; ok {
+			filtered.MailServices = map[string]MailService{app.Mail: svc}
+		}
+	}
+
+	// Include linked auth directory
+	if app.Auth != nil && app.Auth.Directory != "" && df.AuthDirectories != nil {
+		if dir, ok := df.AuthDirectories[app.Auth.Directory]; ok {
+			filtered.AuthDirectories = map[string]AuthDirectory{app.Auth.Directory: dir}
+		}
+	}
+
+	// Include protecting auth frontend
+	if app.Auth != nil && app.Auth.Protected != "" && df.AuthFrontends != nil {
+		if fe, ok := df.AuthFrontends[app.Auth.Protected]; ok {
+			filtered.AuthFrontends = map[string]AuthFrontend{app.Auth.Protected: fe}
+		}
+	}
+
+	return filtered
+}
+
 // Load reads a Dokkufile from disk, auto-detecting YAML or JSON by extension.
 func Load(path string) (*Dokkufile, error) {
 	data, err := os.ReadFile(path)

@@ -27,7 +27,7 @@ func TestFilterByAppReturnsAppAndLinkedServices(t *testing.T) {
 		},
 	}
 
-	filtered := filterByApp(df, "web")
+	filtered := df.FilterByApp("web")
 
 	if len(filtered.Apps) != 1 {
 		t.Fatalf("expected 1 app, got %d", len(filtered.Apps))
@@ -61,7 +61,7 @@ func TestFilterByAppIncludesMailService(t *testing.T) {
 		},
 	}
 
-	filtered := filterByApp(df, "web")
+	filtered := df.FilterByApp("web")
 
 	if len(filtered.MailServices) != 1 {
 		t.Fatalf("expected 1 mail service, got %d", len(filtered.MailServices))
@@ -92,7 +92,7 @@ func TestFilterByAppIncludesAuthDirectoryAndFrontend(t *testing.T) {
 		},
 	}
 
-	filtered := filterByApp(df, "web")
+	filtered := df.FilterByApp("web")
 
 	if len(filtered.AuthDirectories) != 1 {
 		t.Fatalf("expected 1 auth directory, got %d", len(filtered.AuthDirectories))
@@ -116,7 +116,7 @@ func TestFilterByAppNotFound(t *testing.T) {
 		},
 	}
 
-	filtered := filterByApp(df, "nonexistent")
+	filtered := df.FilterByApp("nonexistent")
 
 	if len(filtered.Apps) != 0 {
 		t.Fatalf("expected 0 apps, got %d", len(filtered.Apps))
@@ -250,7 +250,7 @@ func TestInspectCmdSingleAppWithIncludeEnv(t *testing.T) {
 	}
 
 	// Simulate filterByApp + --include-env
-	filtered := filterByApp(df, "web")
+	filtered := df.FilterByApp("web")
 
 	if len(filtered.Apps) != 1 {
 		t.Fatalf("expected 1 app, got %d", len(filtered.Apps))

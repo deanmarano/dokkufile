@@ -366,6 +366,9 @@ Preview changes without applying:
 ```bash
 dokku dokkufile:plan dokkufile.yml
 
+# Scope to a single app (and its linked services/plugins)
+dokku dokkufile:plan dokkufile.yml --app myapp
+
 # JSON output (for CI/scripting)
 dokku dokkufile:plan dokkufile.yml --format json
 ```
@@ -382,6 +385,9 @@ Apply changes to converge live state:
 
 ```bash
 dokku dokkufile:apply dokkufile.yml
+
+# Scope to a single app (and its linked services/plugins)
+dokku dokkufile:apply dokkufile.yml --app myapp
 
 # Dry run (print commands without executing)
 dokku dokkufile:apply dokkufile.yml --dry-run

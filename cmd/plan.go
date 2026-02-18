@@ -14,6 +14,7 @@ import (
 func NewPlanCmd() *cobra.Command {
 	var file string
 	var format string
+	var appFilter string
 
 	cmd := &cobra.Command{
 		Use:   "plan [file]",
@@ -26,6 +27,13 @@ func NewPlanCmd() *cobra.Command {
 			desired, err := schema.Load(file)
 			if err != nil {
 				return fmt.Errorf("loading dokkufile: %w", err)
+			}
+
+			if appFilter != "" {
+				if _, ok := desired.Apps[appFilter]; !ok {
+					return fmt.Errorf("app %q not found in dokkufile", appFilter)
+				}
+				desired = desired.FilterByApp(appFilter)
 			}
 
 			reader := &state.DokkuReader{
@@ -59,5 +67,6 @@ func NewPlanCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&file, "file", "f", "Dokkufile.yml", "path to Dokkufile")
 	cmd.Flags().StringVar(&format, "format", "text", "output format (text or json)")
+	cmd.Flags().StringVar(&appFilter, "app", "", "scope plan to a single app and its linked services")
 	return cmd
 }
