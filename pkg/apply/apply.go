@@ -588,7 +588,13 @@ func (e *Executor) appJsonCommands(appName string, app schema.App) ([][]string, 
 	if err != nil {
 		return nil, fmt.Errorf("marshaling app.json: %w", err)
 	}
-	return [][]string{{"app-json:set", appName, string(jsonBytes)}}, nil
+	if e.FileRunner != nil {
+		path := fmt.Sprintf("/home/dokku/%s/app.json", appName)
+		if err := e.FileRunner.WriteFile(path, jsonBytes, 0644); err != nil {
+			return nil, fmt.Errorf("writing app.json: %w", err)
+		}
+	}
+	return nil, nil
 }
 
 func buildAppJSON(app schema.App) map[string]interface{} {

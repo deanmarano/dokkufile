@@ -696,7 +696,8 @@ func TestUpdateSSLRemove(t *testing.T) {
 
 func TestUpdateHealthchecks(t *testing.T) {
 	runner := &RecordingRunner{}
-	executor := &Executor{Runner: runner}
+	fileRunner := &FakeFileRunner{Files: map[string]string{}}
+	executor := &Executor{Runner: runner, FileRunner: fileRunner}
 
 	p := &plan.Plan{
 		Steps: []plan.Step{
@@ -721,19 +722,13 @@ func TestUpdateHealthchecks(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	// Should generate an app-json:set command
-	found := false
-	for _, cmd := range runner.Commands {
-		if len(cmd) >= 2 && cmd[0] == "app-json:set" && cmd[1] == "myapp" {
-			found = true
-			// The third arg should be valid JSON containing healthchecks
-			if len(cmd) >= 3 && !strings.Contains(cmd[2], "healthchecks") {
-				t.Errorf("app-json:set should contain healthchecks, got: %s", cmd[2])
-			}
-		}
+	// Should write app.json file containing healthchecks
+	content, ok := fileRunner.Files["/home/dokku/myapp/app.json"]
+	if !ok {
+		t.Errorf("expected app.json to be written, got files: %v", fileRunner.Files)
 	}
-	if !found {
-		t.Errorf("expected app-json:set command, got: %v", runner.commandStrings())
+	if !strings.Contains(content, "healthchecks") {
+		t.Errorf("app.json should contain healthchecks, got: %s", content)
 	}
 }
 
@@ -1281,7 +1276,8 @@ func TestUpdateNginxProperties(t *testing.T) {
 
 func TestUpdateScripts(t *testing.T) {
 	runner := &RecordingRunner{}
-	executor := &Executor{Runner: runner}
+	fileRunner := &FakeFileRunner{Files: map[string]string{}}
+	executor := &Executor{Runner: runner, FileRunner: fileRunner}
 
 	p := &plan.Plan{
 		Steps: []plan.Step{
@@ -1307,20 +1303,13 @@ func TestUpdateScripts(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	// Should generate an app-json:set command containing scripts
-	found := false
-	for _, cmd := range runner.Commands {
-		if len(cmd) >= 2 && cmd[0] == "app-json:set" && cmd[1] == "myapp" {
-			found = true
-			if len(cmd) >= 3 {
-				if !strings.Contains(cmd[2], "predeploy") || !strings.Contains(cmd[2], "postdeploy") {
-					t.Errorf("app-json:set should contain scripts, got: %s", cmd[2])
-				}
-			}
-		}
+	// Should write app.json file containing scripts
+	content, ok := fileRunner.Files["/home/dokku/myapp/app.json"]
+	if !ok {
+		t.Errorf("expected app.json to be written, got files: %v", fileRunner.Files)
 	}
-	if !found {
-		t.Errorf("expected app-json:set command, got: %v", runner.commandStrings())
+	if !strings.Contains(content, "predeploy") || !strings.Contains(content, "postdeploy") {
+		t.Errorf("app.json should contain scripts, got: %s", content)
 	}
 }
 
