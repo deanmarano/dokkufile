@@ -32,7 +32,7 @@ func NewPlanCmd() *cobra.Command {
 				Runner:     &state.ExecRunner{},
 				FileRunner: &state.ExecFileRunner{},
 			}
-			actual, err := reader.Read()
+			actual, err := reader.ReadScoped(desired)
 			if err != nil {
 				return fmt.Errorf("reading live state: %w", err)
 			}

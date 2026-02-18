@@ -29,14 +29,25 @@ func NewInspectCmd() *cobra.Command {
 				Runner:     &state.ExecRunner{},
 				FileRunner: &state.ExecFileRunner{},
 			}
-			actual, err := reader.Read()
-			if err != nil {
-				return fmt.Errorf("reading live state: %w", err)
-			}
 
-			// Filter to a single app unless --global
-			if !global && len(args) > 0 {
-				actual = filterByApp(actual, args[0])
+			var actual *schema.Dokkufile
+			if global {
+				var err error
+				actual, err = reader.Read()
+				if err != nil {
+					return fmt.Errorf("reading live state: %w", err)
+				}
+			} else {
+				// Build a minimal scope with just the requested app name.
+				scope := &schema.Dokkufile{
+					Version: "1",
+					Apps:    map[string]schema.App{args[0]: {}},
+				}
+				var err error
+				actual, err = reader.ReadScoped(scope)
+				if err != nil {
+					return fmt.Errorf("reading live state: %w", err)
+				}
 				if len(actual.Apps) == 0 {
 					return fmt.Errorf("app %q not found on server", args[0])
 				}

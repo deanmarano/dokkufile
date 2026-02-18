@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/deanmarano/dokkufile/pkg/schema"
@@ -1552,6 +1553,281 @@ func TestCleanAppExtractsAuthFrontendFromNetwork(t *testing.T) {
 	}
 	if app.Network != nil {
 		t.Errorf("expected Network to be nil, got %+v", app.Network)
+	}
+}
+
+// TrackingRunner wraps a FakeRunner and records every command called.
+type TrackingRunner struct {
+	inner    *FakeRunner
+	Called   []string // keys in the same format as FakeRunner
+}
+
+func (t *TrackingRunner) Run(args ...string) (string, error) {
+	key := fmt.Sprintf("%v", args)
+	t.Called = append(t.Called, key)
+	return t.inner.Run(args...)
+}
+
+func (t *TrackingRunner) HasCalled(args ...string) bool {
+	key := fmt.Sprintf("%v", args)
+	for _, c := range t.Called {
+		if c == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *TrackingRunner) HasCalledPrefix(prefix string) bool {
+	for _, c := range t.Called {
+		if len(c) > 1 && strings.HasPrefix(c[1:], prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestReadScopedOnlyScopedApp(t *testing.T) {
+	// Set up a server with two apps: "myapp" and "otherapp".
+	// Scope only references "myapp".
+	// Verify that only myapp's commands are called (not otherapp's).
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			// apps:list returns both apps
+			fmt.Sprintf("%v", []string{"apps:list"}): {
+				Output: "=====> My Apps\nmyapp\notherapp\n",
+			},
+			// myapp commands
+			fmt.Sprintf("%v", []string{"git:report", "myapp", "--git-source-image"}): {Output: "nginx:latest\n"},
+			fmt.Sprintf("%v", []string{"domains:report", "myapp", "--domains-app-vhosts"}): {Output: "example.com\n"},
+			fmt.Sprintf("%v", []string{"ports:list", "myapp"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "myapp"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "myapp"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "myapp"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "myapp"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "myapp"}):    {Output: "", Err: fmt.Errorf("not active")},
+		},
+	}
+
+	// Add service stubs — scope has no services so these should NOT be called
+	for _, svcType := range serviceTypes {
+		key := fmt.Sprintf("%v", []string{svcType + ":list"})
+		fake.Commands[key] = FakeResult{Err: fmt.Errorf("not installed")}
+	}
+
+	tracker := &TrackingRunner{inner: fake}
+	reader := &DokkuReader{Runner: tracker}
+
+	scope := &schema.Dokkufile{
+		Version:  "1",
+		Apps:     map[string]schema.App{"myapp": {Image: "nginx:latest"}},
+		Services: map[string]schema.Service{},
+	}
+
+	df, err := reader.ReadScoped(scope)
+	if err != nil {
+		t.Fatalf("ReadScoped() error: %v", err)
+	}
+
+	// myapp should be present
+	if _, ok := df.Apps["myapp"]; !ok {
+		t.Error("expected myapp in result")
+	}
+	if df.Apps["myapp"].Image != "nginx:latest" {
+		t.Errorf("Image = %q, want nginx:latest", df.Apps["myapp"].Image)
+	}
+
+	// otherapp should NOT be present
+	if _, ok := df.Apps["otherapp"]; ok {
+		t.Error("otherapp should not be in result — it's not in scope")
+	}
+
+	// Verify no commands were called for otherapp
+	for _, c := range tracker.Called {
+		if strings.Contains(c, "otherapp") {
+			t.Errorf("unexpected command for otherapp: %s", c)
+		}
+	}
+}
+
+func TestReadScopedOnlyScopedServiceTypes(t *testing.T) {
+	// Scope references only postgres services, not redis.
+	// Verify redis:list is never called.
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nmyapp\n"},
+			// postgres:list — should be called
+			fmt.Sprintf("%v", []string{"postgres:list"}): {
+				Output: "NAME        VERSION  STATUS\nmydb        15       running\n",
+			},
+			fmt.Sprintf("%v", []string{"postgres:linked", "mydb", "myapp"}): {Output: ""},
+			// myapp commands
+			fmt.Sprintf("%v", []string{"git:report", "myapp", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "myapp", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "myapp"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "myapp"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "myapp"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "myapp"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "myapp"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "myapp"}):    {Output: "", Err: fmt.Errorf("not active")},
+		},
+	}
+
+	tracker := &TrackingRunner{inner: fake}
+	reader := &DokkuReader{Runner: tracker}
+
+	scope := &schema.Dokkufile{
+		Version:  "1",
+		Apps:     map[string]schema.App{"myapp": {}},
+		Services: map[string]schema.Service{"mydb": {Type: "postgres"}},
+	}
+
+	df, err := reader.ReadScoped(scope)
+	if err != nil {
+		t.Fatalf("ReadScoped() error: %v", err)
+	}
+
+	// postgres should be scanned
+	if !tracker.HasCalled("postgres:list") {
+		t.Error("expected postgres:list to be called")
+	}
+	if df.Services["mydb"].Type != "postgres" {
+		t.Errorf("Service mydb type = %q, want postgres", df.Services["mydb"].Type)
+	}
+
+	// redis should NOT be scanned
+	if tracker.HasCalled("redis:list") {
+		t.Error("redis:list should not be called — not in scope")
+	}
+
+	// mysql should NOT be scanned
+	if tracker.HasCalled("mysql:list") {
+		t.Error("mysql:list should not be called — not in scope")
+	}
+
+	// Link should work
+	app := df.Apps["myapp"]
+	if app.Links["postgres"] != "mydb" {
+		t.Errorf("Links = %v, expected postgres->mydb", app.Links)
+	}
+}
+
+func TestReadScopedStillReadsPluginsAndGlobal(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nmyapp\n"},
+			// myapp commands
+			fmt.Sprintf("%v", []string{"git:report", "myapp", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "myapp", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "myapp"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "myapp"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "myapp"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "myapp"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "myapp"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "myapp"}):    {Output: "", Err: fmt.Errorf("not active")},
+			// plugin:list
+			fmt.Sprintf("%v", []string{"plugin:list"}): {
+				Output: "  letsencrypt          0.23.0    enabled    Auto-renewal of SSL certs\n",
+			},
+		},
+	}
+
+	tracker := &TrackingRunner{inner: fake}
+	reader := &DokkuReader{Runner: tracker}
+
+	scope := &schema.Dokkufile{
+		Version:  "1",
+		Apps:     map[string]schema.App{"myapp": {}},
+		Services: map[string]schema.Service{},
+	}
+
+	df, err := reader.ReadScoped(scope)
+	if err != nil {
+		t.Fatalf("ReadScoped() error: %v", err)
+	}
+
+	// Plugins should be read
+	if !tracker.HasCalled("plugin:list") {
+		t.Error("expected plugin:list to be called")
+	}
+	if _, ok := df.Plugins["letsencrypt"]; !ok {
+		t.Error("expected letsencrypt in plugins")
+	}
+
+	// Global config commands should be called
+	if !tracker.HasCalled("domains:report", "--global") {
+		t.Error("expected global domains:report to be called")
+	}
+}
+
+func TestReadScopedNewAppNotOnServer(t *testing.T) {
+	// An app in scope that doesn't exist on the server should not error,
+	// it just won't appear in the result (it's a new app to be created).
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\n"},
+		},
+	}
+
+	tracker := &TrackingRunner{inner: fake}
+	reader := &DokkuReader{Runner: tracker}
+
+	scope := &schema.Dokkufile{
+		Version:  "1",
+		Apps:     map[string]schema.App{"newapp": {Image: "nginx"}},
+		Services: map[string]schema.Service{},
+	}
+
+	df, err := reader.ReadScoped(scope)
+	if err != nil {
+		t.Fatalf("ReadScoped() error: %v", err)
+	}
+
+	if len(df.Apps) != 0 {
+		t.Errorf("expected 0 apps (new app not on server), got %d", len(df.Apps))
+	}
+}
+
+func TestReadScopedSkipsMailWhenNotReferenced(t *testing.T) {
+	fake := &FakeRunner{
+		Commands: map[string]FakeResult{
+			fmt.Sprintf("%v", []string{"apps:list"}): {Output: "=====> My Apps\nmyapp\n"},
+			fmt.Sprintf("%v", []string{"git:report", "myapp", "--git-source-image"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"domains:report", "myapp", "--domains-app-vhosts"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ports:list", "myapp"}):            {Output: ""},
+			fmt.Sprintf("%v", []string{"config:export", "myapp"}):         {Output: ""},
+			fmt.Sprintf("%v", []string{"storage:report", "myapp"}):        {Output: ""},
+			fmt.Sprintf("%v", []string{"docker-options:report", "myapp"}): {Output: ""},
+			fmt.Sprintf("%v", []string{"ps:scale", "myapp"}):              {Output: ""},
+			fmt.Sprintf("%v", []string{"letsencrypt:active", "myapp"}):    {Output: "", Err: fmt.Errorf("not active")},
+		},
+	}
+
+	tracker := &TrackingRunner{inner: fake}
+	reader := &DokkuReader{Runner: tracker}
+
+	scope := &schema.Dokkufile{
+		Version:  "1",
+		Apps:     map[string]schema.App{"myapp": {}},
+		Services: map[string]schema.Service{},
+	}
+
+	_, err := reader.ReadScoped(scope)
+	if err != nil {
+		t.Fatalf("ReadScoped() error: %v", err)
+	}
+
+	// mail:list should NOT be called when no mail in scope
+	if tracker.HasCalled("mail:list") {
+		t.Error("mail:list should not be called — no mail in scope")
+	}
+	// auth:list should NOT be called
+	if tracker.HasCalled("auth:list") {
+		t.Error("auth:list should not be called — no auth in scope")
+	}
+	// auth:frontend:list should NOT be called
+	if tracker.HasCalled("auth:frontend:list") {
+		t.Error("auth:frontend:list should not be called — no auth frontends in scope")
 	}
 }
 
