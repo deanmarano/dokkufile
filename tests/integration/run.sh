@@ -104,7 +104,7 @@ dokku_exec config:set --no-restart web-app DATABASE_URL=postgres://localhost/myd
 # We'll test it but tolerate failure on some versions.
 dokku_exec ps:scale web-app web=2 worker=1 2>/dev/null || true
 
-OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global 2>/dev/null)
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --global --include-env 2>/dev/null)
 
 assert_contains "app name present" "$OUTPUT" "web-app"
 assert_contains "image present" "$OUTPUT" "nginx"
@@ -205,7 +205,7 @@ echo ""
 echo "=== Test 8: Plan (no drift) ==="
 
 # Export current state, then plan against it — should show no changes
-docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-state.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global --include-env > /tmp/dokkufile-state.yml 2>/dev/null
 docker cp /tmp/dokkufile-state.yml "$CONTAINER_NAME":/tmp/dokkufile-state.yml
 
 PLAN_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile plan /tmp/dokkufile-state.yml 2>/dev/null || echo "plan-error")
@@ -293,12 +293,12 @@ fi
 echo ""
 echo "=== Test 13: Inspect --app filter ==="
 
-OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect --app web-app 2>/dev/null)
+OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile inspect web-app 2>/dev/null)
 assert_contains "filtered app present" "$OUTPUT" "web-app"
 assert_not_contains "other app excluded" "$OUTPUT" "api-app"
 
 # Non-existent app should fail
-if docker exec "$CONTAINER_NAME" dokkufile inspect --app nonexistent 2>/dev/null; then
+if docker exec "$CONTAINER_NAME" dokkufile inspect nonexistent 2>/dev/null; then
     echo "  FAIL: inspect --app nonexistent should have failed"
     FAIL=$((FAIL + 1))
 else
@@ -323,7 +323,7 @@ assert_contains "built present" "$VERSION_OUTPUT" "built:"
 echo ""
 echo "=== Test 15: Plan --format json ==="
 
-docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-state.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global --include-env > /tmp/dokkufile-state.yml 2>/dev/null
 docker cp /tmp/dokkufile-state.yml "$CONTAINER_NAME":/tmp/dokkufile-state.yml
 
 JSON_PLAN=$(docker exec "$CONTAINER_NAME" dokkufile plan --format json /tmp/dokkufile-state.yml 2>/dev/null || echo "plan-error")
@@ -343,7 +343,7 @@ echo ""
 echo "=== Test 16: Validate command ==="
 
 # Valid file should pass
-docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-valid.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global --include-env > /tmp/dokkufile-valid.yml 2>/dev/null
 docker cp /tmp/dokkufile-valid.yml "$CONTAINER_NAME":/tmp/dokkufile-valid.yml
 if docker exec "$CONTAINER_NAME" dokkufile validate /tmp/dokkufile-valid.yml 2>/dev/null; then
     echo "  PASS: validate passes for valid file"
@@ -376,7 +376,7 @@ echo ""
 echo "=== Test 17: Apply --dry-run ==="
 
 # Modify the state file to create drift, then dry-run should show commands without executing
-docker exec "$CONTAINER_NAME" dokkufile inspect --global > /tmp/dokkufile-dryrun.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect --global --include-env > /tmp/dokkufile-dryrun.yml 2>/dev/null
 # Add a new env var to create drift
 docker exec "$CONTAINER_NAME" bash -c 'sed -i "s/DATABASE_URL/DATABASE_URL: postgres:\/\/localhost\/mydb\n      NEW_VAR/" /tmp/dokkufile-dryrun.yml' 2>/dev/null || true
 DRYRUN_OUTPUT=$(docker exec "$CONTAINER_NAME" dokkufile apply --dry-run /tmp/dokkufile-dryrun.yml 2>/dev/null || echo "dry-run-output")
@@ -558,7 +558,7 @@ dokku_exec apps:destroy roundtrip-app --force 2>/dev/null || true
 docker exec "$CONTAINER_NAME" dokkufile apply /tmp/apply-roundtrip.yml 2>&1 >/dev/null || true
 
 # Inspect the result
-docker exec "$CONTAINER_NAME" dokkufile inspect --app roundtrip-app > /tmp/roundtrip-inspected.yml 2>/dev/null
+docker exec "$CONTAINER_NAME" dokkufile inspect roundtrip-app --include-env > /tmp/roundtrip-inspected.yml 2>/dev/null
 docker cp /tmp/roundtrip-inspected.yml "$CONTAINER_NAME":/tmp/roundtrip-inspected.yml
 
 # Plan the inspected state against itself — should be no drift
