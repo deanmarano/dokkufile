@@ -375,7 +375,9 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
-	if !mapEqual(desired.Ports, actual.Ports) {
+	// Only diff ports if the dokkufile explicitly declares them.
+	// nil means "unmanaged" (don't touch).
+	if desired.Ports != nil && !portsEqual(desired.Ports, actual.Ports) {
 		steps = append(steps, Step{
 			Action: UpdateApp,
 			App:    name,
@@ -391,7 +393,9 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
-	if !mapIntEqual(desired.Scale, actual.Scale) {
+	// Only diff scale if the dokkufile explicitly declares it.
+	// nil means "unmanaged" (don't touch).
+	if desired.Scale != nil && !mapIntEqual(desired.Scale, actual.Scale) {
 		steps = append(steps, Step{
 			Action: UpdateApp,
 			App:    name,
@@ -444,8 +448,9 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
-	// Proxy config
-	if !proxyConfigEqual(desired.Proxy, actual.Proxy) {
+	// Proxy config — only diff if explicitly declared.
+	// nil means "unmanaged" (don't touch).
+	if desired.Proxy != nil && !proxyConfigEqual(desired.Proxy, actual.Proxy) {
 		steps = append(steps, Step{
 			Action: UpdateApp,
 			App:    name,
@@ -482,8 +487,9 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
-	// Healthchecks
-	if !healthchecksEqual(desired.Healthchecks, actual.Healthchecks) {
+	// Healthchecks — only diff if explicitly declared.
+	// nil means "unmanaged" (don't touch).
+	if desired.Healthchecks != nil && !healthchecksEqual(desired.Healthchecks, actual.Healthchecks) {
 		steps = append(steps, Step{
 			Action: UpdateApp,
 			App:    name,
@@ -630,6 +636,37 @@ func sliceEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// portsEqual compares port maps after normalizing to a common format.
+// The YAML schema uses {"http": "80:3001"} (scheme -> host:container).
+// The state reader uses {"http:80": "3001"} (scheme:host -> container).
+// This function normalizes both to the state reader format before comparing.
+func portsEqual(a, b map[string]string) bool {
+	return mapEqual(normalizePorts(a), normalizePorts(b))
+}
+
+// normalizePorts converts port maps to "scheme:host" -> "container" format.
+func normalizePorts(ports map[string]string) map[string]string {
+	if ports == nil {
+		return nil
+	}
+	result := map[string]string{}
+	for k, v := range ports {
+		if !strings.Contains(k, ":") {
+			// Short form: scheme -> "host:container"
+			parts := strings.SplitN(v, ":", 2)
+			if len(parts) == 2 {
+				result[k+":"+parts[0]] = parts[1]
+			} else {
+				result[k] = v
+			}
+		} else {
+			// Already normalized: "scheme:host" -> "container"
+			result[k] = v
+		}
+	}
+	return result
 }
 
 func mapEqual(a, b map[string]string) bool {

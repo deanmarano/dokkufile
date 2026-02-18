@@ -1422,6 +1422,71 @@ func TestNoChangeAuthSame(t *testing.T) {
 	}
 }
 
+func TestNoFalsePositiveUnmanagedFields(t *testing.T) {
+	// When the dokkufile doesn't declare ports, scale, proxy, or healthchecks,
+	// we should NOT report drift even if the actual state has values for them.
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Domains: []string{"myapp.example.com"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Domains: []string{"myapp.example.com"},
+				Ports:   map[string]string{"http:80": "3001"},
+				Scale:   map[string]int{"web": 1},
+				Proxy:   &schema.ProxyConfig{Enabled: true, Type: "nginx"},
+				Healthchecks: map[string][]schema.HealthcheckConfig{
+					"web": {{Path: "/", Timeout: 10}},
+				},
+			},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	for _, s := range p.Steps {
+		switch s.Field {
+		case "ports", "scale", "proxy", "healthchecks":
+			t.Errorf("should not report drift for unmanaged field %q", s.Field)
+		}
+	}
+}
+
+func TestPortsEqualDifferentFormats(t *testing.T) {
+	// YAML format: {"http": "80:3001"}
+	// State reader format: {"http:80": "3001"}
+	// These should be considered equal.
+	yamlPorts := map[string]string{"http": "80:3001"}
+	statePorts := map[string]string{"http:80": "3001"}
+
+	if !portsEqual(yamlPorts, statePorts) {
+		t.Error("expected YAML ports and state reader ports to be equal")
+	}
+}
+
+func TestPortsEqualBothNil(t *testing.T) {
+	if !portsEqual(nil, nil) {
+		t.Error("expected nil ports to be equal")
+	}
+}
+
+func TestPortsNotEqual(t *testing.T) {
+	a := map[string]string{"http": "80:3001"}
+	b := map[string]string{"http": "80:8080"}
+
+	if portsEqual(a, b) {
+		t.Error("expected different ports to not be equal")
+	}
+}
+
 func TestDetectServiceVersionChange(t *testing.T) {
 	desired := &schema.Dokkufile{
 		Version: "1",
