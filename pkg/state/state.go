@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -42,7 +43,7 @@ func (r *ExecRunner) Run(args ...string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "dokku", args...)
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return string(out), toleratePlugnExit(err)
 }
 
 func (r *ExecRunner) RunWithStdin(stdin io.Reader, args ...string) (string, error) {
@@ -51,7 +52,20 @@ func (r *ExecRunner) RunWithStdin(stdin io.Reader, args ...string) (string, erro
 	cmd := exec.CommandContext(ctx, "dokku", args...)
 	cmd.Stdin = stdin
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return string(out), toleratePlugnExit(err)
+}
+
+// toleratePlugnExit ignores exit code 127, which dokku's plugn/go-basher
+// dispatcher produces as noise even when the underlying command succeeds.
+func toleratePlugnExit(err error) error {
+	if err == nil {
+		return nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 127 {
+		return nil
+	}
+	return err
 }
 
 // ExecFileRunner implements FileRunner using the local filesystem.
