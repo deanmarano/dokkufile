@@ -43,7 +43,8 @@ type Plugin struct {
 
 // Service represents a backing service (database, cache, etc).
 type Service struct {
-	Type string `yaml:"type" json:"type"`
+	Type         string `yaml:"type" json:"type"`
+	ImageVersion string `yaml:"image_version,omitempty" json:"image_version,omitempty"`
 }
 
 // App represents an application deployment.

@@ -2369,3 +2369,89 @@ func TestCreateAppWithAuthProtected(t *testing.T) {
 		t.Errorf("expected auth:frontend:protect myfe, got: %v", runner.commandStrings())
 	}
 }
+
+func TestCreateServiceWithImageVersion(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateService, Service: "mydb", ServiceType: "postgres"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres", ImageVersion: "15"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("postgres:create", "mydb", "--image-version", "15") {
+		t.Errorf("expected postgres:create mydb --image-version 15, got: %v", runner.commandStrings())
+	}
+}
+
+func TestCreateServiceWithoutImageVersion(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateService, Service: "mydb", ServiceType: "postgres"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres"},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("postgres:create", "mydb") {
+		t.Errorf("expected postgres:create mydb (no --image-version), got: %v", runner.commandStrings())
+	}
+}
+
+func TestUpdateServiceVersion(t *testing.T) {
+	runner := &RecordingRunner{}
+	executor := &Executor{Runner: runner}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.UpdateService, Service: "mydb", ServiceType: "postgres", Field: "image_version"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres", ImageVersion: "16"},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres", ImageVersion: "15"},
+		},
+	}
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	if !runner.hasCommand("postgres:upgrade", "mydb", "--image-version", "16") {
+		t.Errorf("expected postgres:upgrade mydb --image-version 16, got: %v", runner.commandStrings())
+	}
+}

@@ -611,3 +611,115 @@ services:
 		t.Fatal("expected app 'web' to exist")
 	}
 }
+
+func TestServiceImageVersion(t *testing.T) {
+	input := `
+version: "3"
+services:
+  db:
+    image: postgres:15
+  app:
+    image: myapp:latest
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	svc, ok := df.Services["db"]
+	if !ok {
+		t.Fatal("expected service 'db' to be detected")
+	}
+	if svc.ImageVersion != "15" {
+		t.Errorf("expected image version '15', got %q", svc.ImageVersion)
+	}
+}
+
+func TestServiceImageVersionAlpineSuffix(t *testing.T) {
+	input := `
+version: "3"
+services:
+  cache:
+    image: redis:7-alpine
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	svc := df.Services["cache"]
+	if svc.ImageVersion != "7" {
+		t.Errorf("expected image version '7', got %q", svc.ImageVersion)
+	}
+}
+
+func TestServiceImageVersionLatestIgnored(t *testing.T) {
+	input := `
+version: "3"
+services:
+  db:
+    image: postgres:latest
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	svc := df.Services["db"]
+	if svc.ImageVersion != "" {
+		t.Errorf("expected empty image version for 'latest', got %q", svc.ImageVersion)
+	}
+}
+
+func TestServiceImageVersionNoTag(t *testing.T) {
+	input := `
+version: "3"
+services:
+  db:
+    image: postgres
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	svc := df.Services["db"]
+	if svc.ImageVersion != "" {
+		t.Errorf("expected empty image version for no tag, got %q", svc.ImageVersion)
+	}
+}
+
+func TestAutoAddPlugins(t *testing.T) {
+	input := `
+version: "3"
+services:
+  db:
+    image: postgres:15
+  cache:
+    image: redis:7
+  app:
+    image: myapp:latest
+`
+	df, err := ImportCompose([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if df.Plugins == nil {
+		t.Fatal("expected plugins to be set")
+	}
+	pgPlugin, ok := df.Plugins["postgres"]
+	if !ok {
+		t.Fatal("expected postgres plugin entry")
+	}
+	if pgPlugin.URL != "https://github.com/dokku/dokku-postgres.git" {
+		t.Errorf("unexpected postgres plugin URL: %q", pgPlugin.URL)
+	}
+	redisPlugin, ok := df.Plugins["redis"]
+	if !ok {
+		t.Fatal("expected redis plugin entry")
+	}
+	if redisPlugin.URL != "https://github.com/dokku/dokku-redis.git" {
+		t.Errorf("unexpected redis plugin URL: %q", redisPlugin.URL)
+	}
+}

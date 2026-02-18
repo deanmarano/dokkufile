@@ -17,6 +17,7 @@ const (
 	UpdateApp           Action = "update_app"
 	CreateService       Action = "create_service"
 	DestroyService      Action = "destroy_service"
+	UpdateService       Action = "update_service"
 	CreateMailService   Action = "create_mail_service"
 	DestroyMailService  Action = "destroy_mail_service"
 	UpdateMailService   Action = "update_mail_service"
@@ -66,6 +67,8 @@ func (p *Plan) String() string {
 			fmt.Fprintf(&b, "+ service %q\n", s.Service)
 		case DestroyService:
 			fmt.Fprintf(&b, "- service %q\n", s.Service)
+		case UpdateService:
+			fmt.Fprintf(&b, "~ service %q: %s %q → %q\n", s.Service, s.Field, s.OldValue, s.NewValue)
 		case CreateMailService:
 			fmt.Fprintf(&b, "+ mail service %q\n", s.Service)
 		case DestroyMailService:
@@ -126,11 +129,20 @@ func diffServices(desired, actual *schema.Dokkufile) []Step {
 	}
 
 	for name, svc := range desiredSvc {
-		if _, exists := actualSvc[name]; !exists {
+		if actual, exists := actualSvc[name]; !exists {
 			steps = append(steps, Step{
 				Action:      CreateService,
 				Service:     name,
 				ServiceType: svc.Type,
+			})
+		} else if svc.ImageVersion != "" && svc.ImageVersion != actual.ImageVersion {
+			steps = append(steps, Step{
+				Action:      UpdateService,
+				Service:     name,
+				ServiceType: svc.Type,
+				Field:       "image_version",
+				OldValue:    actual.ImageVersion,
+				NewValue:    svc.ImageVersion,
 			})
 		}
 	}

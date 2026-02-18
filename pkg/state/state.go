@@ -128,7 +128,15 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 		}
 		names := parseServiceList(out)
 		for _, name := range names {
-			df.Services[name] = schema.Service{Type: svcType}
+			svc := schema.Service{Type: svcType}
+			if info, err := r.Runner.Run(svcType+":info", name); err == nil {
+				// Field name format: "Postgres image version", "Redis image version", etc.
+				fieldName := strings.ToUpper(svcType[:1]) + svcType[1:] + " image version"
+				if ver := parseReportField(info, fieldName); ver != "" {
+					svc.ImageVersion = ver
+				}
+			}
+			df.Services[name] = svc
 		}
 		allServices[svcType] = names
 	}
@@ -679,7 +687,14 @@ func (r *DokkuReader) ReadScoped(scope *schema.Dokkufile) (*schema.Dokkufile, er
 		}
 		names := parseServiceList(out)
 		for _, name := range names {
-			df.Services[name] = schema.Service{Type: svcType}
+			svc := schema.Service{Type: svcType}
+			if info, err := r.Runner.Run(svcType+":info", name); err == nil {
+				fieldName := strings.ToUpper(svcType[:1]) + svcType[1:] + " image version"
+				if ver := parseReportField(info, fieldName); ver != "" {
+					svc.ImageVersion = ver
+				}
+			}
+			df.Services[name] = svc
 		}
 		allServices[svcType] = names
 	}

@@ -137,6 +137,25 @@ var knownServices = map[string]string{
 	"typesense":     "typesense",
 }
 
+// servicePluginURLs maps dokku service types to their plugin install URLs.
+var servicePluginURLs = map[string]string{
+	"postgres":      "https://github.com/dokku/dokku-postgres.git",
+	"redis":         "https://github.com/dokku/dokku-redis.git",
+	"mysql":         "https://github.com/dokku/dokku-mysql.git",
+	"mariadb":       "https://github.com/dokku/dokku-mariadb.git",
+	"mongo":         "https://github.com/dokku/dokku-mongo.git",
+	"memcached":     "https://github.com/dokku/dokku-memcached.git",
+	"rabbitmq":      "https://github.com/dokku/dokku-rabbitmq.git",
+	"elasticsearch": "https://github.com/dokku/dokku-elasticsearch.git",
+	"clickhouse":    "https://github.com/dokku/dokku-clickhouse.git",
+	"couchdb":       "https://github.com/dokku/dokku-couchdb.git",
+	"meilisearch":   "https://github.com/dokku/dokku-meilisearch.git",
+	"nats":          "https://github.com/dokku/dokku-nats.git",
+	"rethinkdb":     "https://github.com/dokku/dokku-rethinkdb.git",
+	"solr":          "https://github.com/dokku/dokku-solr.git",
+	"typesense":     "https://github.com/dokku/dokku-typesense.git",
+}
+
 // isKnownService checks if an image name matches a known backing service.
 func isKnownService(image string) (string, bool) {
 	// Extract image name without tag
@@ -151,6 +170,25 @@ func isKnownService(image string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// extractImageVersion extracts the version tag from a Docker image string.
+// Returns empty string if no tag or if tag is "latest".
+func extractImageVersion(image string) string {
+	parts := strings.SplitN(image, ":", 2)
+	if len(parts) < 2 {
+		return ""
+	}
+	tag := parts[1]
+	if tag == "latest" {
+		return ""
+	}
+	// Strip common suffixes like "-alpine", "-slim", etc. to get the version core
+	// e.g. "15-alpine" -> "15", "7-alpine" -> "7"
+	for _, suffix := range []string{"-alpine", "-slim", "-bullseye", "-bookworm", "-buster"} {
+		tag = strings.TrimSuffix(tag, suffix)
+	}
+	return tag
 }
 
 // ImportCompose parses a docker-compose YAML and returns a Dokkufile.
@@ -170,8 +208,22 @@ func ImportCompose(data []byte) (*schema.Dokkufile, error) {
 	serviceTypes := map[string]string{} // compose service name -> dokku service type
 	for name, svc := range compose.Services {
 		if svcType, ok := isKnownService(svc.Image); ok {
-			df.Services[name] = schema.Service{Type: svcType}
+			service := schema.Service{Type: svcType}
+			if ver := extractImageVersion(svc.Image); ver != "" {
+				service.ImageVersion = ver
+			}
+			df.Services[name] = service
 			serviceTypes[name] = svcType
+
+			// Auto-add the corresponding dokku plugin
+			if pluginURL, hasPlugin := servicePluginURLs[svcType]; hasPlugin {
+				if df.Plugins == nil {
+					df.Plugins = map[string]schema.Plugin{}
+				}
+				if _, exists := df.Plugins[svcType]; !exists {
+					df.Plugins[svcType] = schema.Plugin{URL: pluginURL}
+				}
+			}
 		}
 	}
 

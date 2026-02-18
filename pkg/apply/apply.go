@@ -58,7 +58,10 @@ func (e *Executor) Execute(p *plan.Plan, desired, actual *schema.Dokkufile) erro
 func (e *Executor) commandsForStep(s plan.Step, desired, actual *schema.Dokkufile) ([][]string, error) {
 	switch s.Action {
 	case plan.CreateService:
-		return [][]string{{s.ServiceType + ":create", s.Service}}, nil
+		return e.createServiceCommands(s, desired)
+
+	case plan.UpdateService:
+		return e.updateServiceCommands(s, desired)
 
 	case plan.DestroyService:
 		return [][]string{{s.ServiceType + ":destroy", s.Service, "--force"}}, nil
@@ -1181,6 +1184,8 @@ func describeStep(s plan.Step) string {
 		return fmt.Sprintf("create %s service %q", s.ServiceType, s.Service)
 	case plan.DestroyService:
 		return fmt.Sprintf("destroy %s service %q", s.ServiceType, s.Service)
+	case plan.UpdateService:
+		return fmt.Sprintf("update %s service %q", s.ServiceType, s.Service)
 	case plan.CreateMailService:
 		return fmt.Sprintf("create mail service %q", s.Service)
 	case plan.DestroyMailService:
@@ -1406,6 +1411,28 @@ func buildpacksCommands(appName string, buildpacks []string) [][]string {
 		cmds = append(cmds, []string{"buildpacks:add", appName, bp})
 	}
 	return cmds
+}
+
+// createServiceCommands generates commands to create a backing service, with optional image version.
+func (e *Executor) createServiceCommands(s plan.Step, desired *schema.Dokkufile) ([][]string, error) {
+	cmd := []string{s.ServiceType + ":create", s.Service}
+	if svc, ok := desired.Services[s.Service]; ok && svc.ImageVersion != "" {
+		cmd = append(cmd, "--image-version", svc.ImageVersion)
+	}
+	return [][]string{cmd}, nil
+}
+
+// updateServiceCommands generates commands to upgrade a backing service's image version.
+func (e *Executor) updateServiceCommands(s plan.Step, desired *schema.Dokkufile) ([][]string, error) {
+	svc, ok := desired.Services[s.Service]
+	if !ok {
+		return nil, fmt.Errorf("service %q not found in desired state", s.Service)
+	}
+	var cmds [][]string
+	if svc.ImageVersion != "" {
+		cmds = append(cmds, []string{s.ServiceType + ":upgrade", s.Service, "--image-version", svc.ImageVersion})
+	}
+	return cmds, nil
 }
 
 // installPluginCommands generates plugin:install commands.

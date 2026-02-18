@@ -1421,3 +1421,74 @@ func TestNoChangeAuthSame(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectServiceVersionChange(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres", ImageVersion: "16"},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres", ImageVersion: "15"},
+		},
+	}
+
+	p := Diff(desired, actual)
+
+	found := false
+	for _, s := range p.Steps {
+		if s.Service == "mydb" && s.Action == UpdateService {
+			found = true
+			if s.Field != "image_version" {
+				t.Errorf("expected field 'image_version', got %q", s.Field)
+			}
+			if s.OldValue != "15" || s.NewValue != "16" {
+				t.Errorf("unexpected version values: old=%q new=%q", s.OldValue, s.NewValue)
+			}
+		}
+	}
+	if !found {
+		t.Error("did not find update service step for version change")
+	}
+}
+
+func TestNoChangeServiceVersionSame(t *testing.T) {
+	state := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres", ImageVersion: "15"},
+		},
+	}
+
+	p := Diff(state, state)
+	for _, s := range p.Steps {
+		if s.Service == "mydb" && s.Action == UpdateService {
+			t.Error("expected no update service step when versions match")
+		}
+	}
+}
+
+func TestServiceVersionEmptyDesiredSkips(t *testing.T) {
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres"},
+		},
+	}
+	actual := &schema.Dokkufile{
+		Version: "1",
+		Services: map[string]schema.Service{
+			"mydb": {Type: "postgres", ImageVersion: "15"},
+		},
+	}
+
+	p := Diff(desired, actual)
+	for _, s := range p.Steps {
+		if s.Service == "mydb" && s.Action == UpdateService {
+			t.Error("expected no update when desired version is empty (unmanaged)")
+		}
+	}
+}
