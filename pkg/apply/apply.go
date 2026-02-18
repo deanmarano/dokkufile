@@ -40,6 +40,21 @@ func (e *Executor) Execute(p *plan.Plan, desired, actual *schema.Dokkufile) erro
 		}
 
 		for _, cmd := range cmds {
+			// Handle synthetic file-write commands
+			if len(cmd) >= 3 && cmd[0] == "__write-app-json" {
+				if e.DryRun {
+					fmt.Printf("[dry-run] write /home/dokku/%s/app.json\n", cmd[1])
+					continue
+				}
+				if e.FileRunner != nil {
+					path := fmt.Sprintf("/home/dokku/%s/app.json", cmd[1])
+					fmt.Printf("Writing: %s\n", path)
+					if err := e.FileRunner.WriteFile(path, []byte(cmd[2]), 0644); err != nil {
+						return fmt.Errorf("writing app.json: %w", err)
+					}
+				}
+				continue
+			}
 			if e.DryRun {
 				fmt.Printf("[dry-run] dokku %s\n", strings.Join(cmd, " "))
 				continue
@@ -588,13 +603,10 @@ func (e *Executor) appJsonCommands(appName string, app schema.App) ([][]string, 
 	if err != nil {
 		return nil, fmt.Errorf("marshaling app.json: %w", err)
 	}
-	if e.FileRunner != nil {
-		path := fmt.Sprintf("/home/dokku/%s/app.json", appName)
-		if err := e.FileRunner.WriteFile(path, jsonBytes, 0644); err != nil {
-			return nil, fmt.Errorf("writing app.json: %w", err)
-		}
-	}
-	return nil, nil
+	// Return a synthetic command that the executor will intercept to write the file.
+	// We can't write directly here because during CreateApp, the /home/dokku/<app>/
+	// directory may not exist yet (apps:create hasn't run).
+	return [][]string{{"__write-app-json", appName, string(jsonBytes)}}, nil
 }
 
 func buildAppJSON(app schema.App) map[string]interface{} {
