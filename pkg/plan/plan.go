@@ -413,6 +413,24 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
+	if desired.LetsEncryptEmail != actual.LetsEncryptEmail {
+		steps = append(steps, Step{
+			Action:   UpdateApp,
+			App:      name,
+			Field:    "letsencrypt_email",
+			OldValue: actual.LetsEncryptEmail,
+			NewValue: desired.LetsEncryptEmail,
+		})
+	}
+
+	if desired.DNS != actual.DNS {
+		steps = append(steps, Step{
+			Action: UpdateApp,
+			App:    name,
+			Field:  "dns",
+		})
+	}
+
 	if desired.LetsEncrypt != actual.LetsEncrypt {
 		steps = append(steps, Step{
 			Action: UpdateApp,

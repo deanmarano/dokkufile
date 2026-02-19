@@ -206,7 +206,18 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 		cmds = append(cmds, []string{"git:from-image", appName, app.Image})
 	}
 
-	// Enable letsencrypt (after deploy so nginx config exists)
+	// DNS (after deploy, before letsencrypt)
+	if app.DNS {
+		cmds = append(cmds, []string{"dns:apps:enable", appName})
+		cmds = append(cmds, []string{"dns:apps:sync", appName})
+	}
+
+	// Letsencrypt email (before enable)
+	if app.LetsEncryptEmail != "" {
+		cmds = append(cmds, []string{"letsencrypt:set", appName, "email", app.LetsEncryptEmail})
+	}
+
+	// Letsencrypt (after DNS so HTTP-01 challenge works)
 	if app.LetsEncrypt {
 		cmds = append(cmds, []string{"letsencrypt:enable", appName})
 	}
@@ -330,10 +341,31 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 		return [][]string{scaleSetArgs(s.App, dApp.Scale)}, nil
 
 	case "letsencrypt":
-		if dApp.LetsEncrypt {
-			return [][]string{{"letsencrypt:enable", s.App}}, nil
+		var cmds [][]string
+		if dApp.LetsEncryptEmail != "" {
+			cmds = append(cmds, []string{"letsencrypt:set", s.App, "email", dApp.LetsEncryptEmail})
 		}
-		return [][]string{{"letsencrypt:disable", s.App}}, nil
+		if dApp.LetsEncrypt {
+			cmds = append(cmds, []string{"letsencrypt:enable", s.App})
+		} else {
+			cmds = append(cmds, []string{"letsencrypt:disable", s.App})
+		}
+		return cmds, nil
+
+	case "letsencrypt_email":
+		if dApp.LetsEncryptEmail != "" {
+			return [][]string{{"letsencrypt:set", s.App, "email", dApp.LetsEncryptEmail}}, nil
+		}
+		return [][]string{{"letsencrypt:set", s.App, "email", ""}}, nil
+
+	case "dns":
+		if dApp.DNS {
+			return [][]string{
+				{"dns:apps:enable", s.App},
+				{"dns:apps:sync", s.App},
+			}, nil
+		}
+		return [][]string{{"dns:apps:disable", s.App}}, nil
 
 	case "git":
 		if dApp.Git == nil {

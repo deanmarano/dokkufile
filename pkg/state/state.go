@@ -603,6 +603,19 @@ func (r *DokkuReader) readApp(appName string, ctx *readAppContext) schema.App {
 	_, err := r.Runner.Run("letsencrypt:active", appName)
 	app.LetsEncrypt = (err == nil)
 
+	// LetsEncrypt email
+	if out, err := r.Runner.Run("letsencrypt:report", appName, "--letsencrypt-email"); err == nil {
+		email := strings.TrimSpace(out)
+		if email != "" {
+			app.LetsEncryptEmail = email
+		}
+	}
+
+	// DNS
+	if out, err := r.Runner.Run("dns:apps:report", appName, "--dns-enabled"); err == nil {
+		app.DNS = strings.TrimSpace(out) == "true"
+	}
+
 	// Links — check each service to see if it's linked to this app
 	links := map[string]string{}
 	for svcType, names := range ctx.allServices {

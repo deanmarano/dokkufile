@@ -58,7 +58,9 @@ type App struct {
 	Links         map[string]string `yaml:"links,omitempty" json:"links,omitempty"`
 	Storage       []string          `yaml:"storage,omitempty" json:"storage,omitempty"`
 	DockerOptions DockerOptions     `yaml:"docker_options,omitempty" json:"docker_options,omitempty"`
-	LetsEncrypt   bool              `yaml:"letsencrypt,omitempty" json:"letsencrypt,omitempty"`
+	LetsEncrypt      bool              `yaml:"letsencrypt,omitempty" json:"letsencrypt,omitempty"`
+	LetsEncryptEmail string            `yaml:"letsencrypt_email,omitempty" json:"letsencrypt_email,omitempty"`
+	DNS              bool              `yaml:"dns,omitempty" json:"dns,omitempty"`
 	SSL           *SSLConfig        `yaml:"ssl,omitempty" json:"ssl,omitempty"`
 	Network       *NetworkConfig    `yaml:"network,omitempty" json:"network,omitempty"`
 	Nginx         *NginxConfig      `yaml:"nginx,omitempty" json:"nginx,omitempty"`
