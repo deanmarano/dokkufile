@@ -110,7 +110,7 @@ apps:
     # Environment variables
     env:
       NODE_ENV: production
-    secrets:
+    secrets:                       # config keys managed directly in Dokku
       - SECRET_KEY
 
     # Linked services
@@ -231,7 +231,7 @@ global:
 
 Env vars are omitted by default from `inspect` output because they typically contain secrets. Use `--include-env` to include them.
 
-The `secrets` field lets you reference environment variables by name. At apply time, values are pulled from the host's environment so secrets never appear in the YAML file:
+The `secrets` field lists config keys that are managed directly in Dokku (via `dokku config:set`). Apply never reads or writes their values — it only excludes them from env drift detection so they aren't flagged or unset. Set them once with `dokku config:set myapp SECRET_KEY=value` and dokkufile will leave them alone:
 
 ```yaml
 apps:
