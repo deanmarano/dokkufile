@@ -40,7 +40,7 @@ dokku dokkufile:apply dokkufile.yml
 |---|---|
 | `dokkufile:inspect <app> [--include-env] [--global]` | Dump live server state as a dokkufile |
 | `dokkufile:plan <file> [--app <app>] [--format json]` | Preview changes without applying |
-| `dokkufile:apply <file> [--app <app>] [--dry-run]` | Apply changes to converge live state |
+| `dokkufile:apply <file> [--app <app>] [--dry-run] [--no-checkpoint] [--clear-checkpoint]` | Apply changes to converge live state |
 | `dokkufile:validate <file>` | Check a dokkufile offline |
 | `dokkufile:import -f <compose-file>` | Convert docker-compose.yml to dokkufile |
 | `dokkufile:version` | Show version |
@@ -226,6 +226,15 @@ global:
   proxy:
     type: nginx
 ```
+
+## Checkpoint and Resume
+
+If an apply fails partway through, dokkufile saves a `.dokkufile-checkpoint.json` file recording which steps completed. On the next apply, completed steps are skipped and execution resumes where it left off.
+
+- Checkpoints are validated against the Dokkufile's content hash — if you change the Dokkufile, the stale checkpoint is discarded and a full apply runs
+- Use `--no-checkpoint` to disable checkpointing
+- Use `--clear-checkpoint` to delete a checkpoint manually
+- On a successful apply, the checkpoint file is automatically cleaned up
 
 ## Environment Variables
 

@@ -40,6 +40,7 @@ pkg/
     parse.go             → parse dokku command output into structs
   plan/plan.go           → diff two Dokkufiles into a Plan with Steps
   apply/apply.go         → execute Plan steps as dokku commands
+  apply/checkpoint.go    → checkpoint save/load for resumable applies
   compose/import.go      → docker-compose YAML → Dokkufile conversion
 ```
 
@@ -50,6 +51,7 @@ pkg/
 - **Secrets as preservation list**: The `secrets` field lists config keys managed directly in Dokku (e.g., `dokku config:set`). Apply never reads or writes their values — it only excludes them from env drift detection so they aren't flagged or unset.
 - **Phase ordering**: apply creates plugins → services → apps, then configures each app (domains, env, ports, storage, etc.) before deploying.
 - **Commands accept both `-f` flag and positional arg**: `plan`, `apply`, `validate`, `stop`, `restart`, `status`, and `destroy` all support `cmd [file]` and `cmd -f file`. Positional arg overrides the flag.
+- **Checkpoint and resume**: If apply fails partway through, a `.dokkufile-checkpoint.json` file is saved alongside the Dokkufile recording completed steps. The next apply loads the checkpoint, skips completed steps, and resumes. Checkpoints are validated by SHA-256 hash of the Dokkufile — stale checkpoints (from a changed Dokkufile) are deleted automatically. Flags: `--no-checkpoint` to disable, `--clear-checkpoint` to delete manually. "Already exists" errors on create commands are tolerated to handle resumed partial creates.
 - **Lifecycle commands**: `stop`, `restart`, `status`, and `destroy` operate on all apps in a Dokkufile as a unit. `stop`, `restart`, and `destroy` support `--app` to target a single app. `destroy` requires `--force` to skip confirmation and `--include-services` to also destroy backing services. All lifecycle commands use partial failure handling (continue on error, report all failures at end).
 
 ## Dependencies
