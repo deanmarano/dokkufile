@@ -1952,19 +1952,7 @@ func TestUpdateGlobalRegistry(t *testing.T) {
 
 func TestSecretsApply(t *testing.T) {
 	runner := &RecordingRunner{}
-	executor := &Executor{
-		Runner: runner,
-		EnvGetter: func(key string) string {
-			switch key {
-			case "DATABASE_URL":
-				return "postgres://localhost/mydb"
-			case "API_KEY":
-				return "secret123"
-			default:
-				return ""
-			}
-		},
-	}
+	executor := &Executor{Runner: runner}
 
 	p := &plan.Plan{
 		Steps: []plan.Step{
@@ -1990,36 +1978,16 @@ func TestSecretsApply(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	// Should have a config:set with both secrets
-	found := false
-	for _, cmd := range runner.Commands {
-		if len(cmd) >= 4 && cmd[0] == "config:set" && cmd[1] == "--no-restart" && cmd[2] == "myapp" {
-			found = true
-			cmdStr := strings.Join(cmd, " ")
-			if !strings.Contains(cmdStr, "DATABASE_URL=postgres://localhost/mydb") {
-				t.Errorf("expected DATABASE_URL in config:set, got: %s", cmdStr)
-			}
-			if !strings.Contains(cmdStr, "API_KEY=secret123") {
-				t.Errorf("expected API_KEY in config:set, got: %s", cmdStr)
-			}
-		}
-	}
-	if !found {
-		t.Errorf("expected config:set command for secrets, got: %v", runner.commandStrings())
+	// Secrets are managed in Dokku config directly, not by apply.
+	// No commands should be generated for a secrets update step.
+	if len(runner.Commands) != 0 {
+		t.Errorf("expected no commands for secrets update, got: %v", runner.commandStrings())
 	}
 }
 
 func TestCreateAppWithSecrets(t *testing.T) {
 	runner := &RecordingRunner{}
-	executor := &Executor{
-		Runner: runner,
-		EnvGetter: func(key string) string {
-			if key == "SECRET_KEY" {
-				return "mysecretvalue"
-			}
-			return ""
-		},
-	}
+	executor := &Executor{Runner: runner}
 
 	p := &plan.Plan{
 		Steps: []plan.Step{
@@ -2043,23 +2011,19 @@ func TestCreateAppWithSecrets(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	// Should have two config:set commands: one for env, one for secrets
+	// Should have one config:set for env only — secrets are not set by apply
 	configSetCount := 0
-	hasSecretSet := false
 	for _, cmd := range runner.Commands {
 		if len(cmd) >= 3 && cmd[0] == "config:set" {
 			configSetCount++
 			cmdStr := strings.Join(cmd, " ")
-			if strings.Contains(cmdStr, "SECRET_KEY=mysecretvalue") {
-				hasSecretSet = true
+			if strings.Contains(cmdStr, "SECRET_KEY") {
+				t.Errorf("secrets should not be set by apply, got: %s", cmdStr)
 			}
 		}
 	}
-	if configSetCount < 2 {
-		t.Errorf("expected at least 2 config:set commands (env + secrets), got %d: %v", configSetCount, runner.commandStrings())
-	}
-	if !hasSecretSet {
-		t.Errorf("expected SECRET_KEY=mysecretvalue in config:set, got: %v", runner.commandStrings())
+	if configSetCount != 1 {
+		t.Errorf("expected 1 config:set command (env only), got %d: %v", configSetCount, runner.commandStrings())
 	}
 }
 

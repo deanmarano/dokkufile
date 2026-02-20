@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,21 +18,13 @@ import (
 type Executor struct {
 	Runner     state.CommandRunner
 	FileRunner state.FileRunner
-	DryRun     bool
-	// EnvGetter reads environment variables for secrets. Defaults to os.Getenv.
-	EnvGetter func(string) string
+	DryRun bool
 	// CheckpointDir is the directory to store checkpoint files. Empty disables checkpointing.
 	CheckpointDir string
 	// DokkufilePath is the path to the Dokkufile, used for checkpoint hash validation.
 	DokkufilePath string
 }
 
-func (e *Executor) getEnv(key string) string {
-	if e.EnvGetter != nil {
-		return e.EnvGetter(key)
-	}
-	return os.Getenv(key)
-}
 
 // Execute runs each step in the plan, using the desired and actual state for context.
 // If CheckpointDir is set, completed steps are saved on failure so that a subsequent
@@ -284,14 +275,6 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 	// Set env
 	if len(app.Env) > 0 {
 		cmds = append(cmds, configSetArgs(appName, app.Env))
-	}
-
-	// Set secrets from host environment
-	if len(app.Secrets) > 0 {
-		secretEnv := e.resolveSecrets(app.Secrets)
-		if len(secretEnv) > 0 {
-			cmds = append(cmds, configSetArgs(appName, secretEnv))
-		}
 	}
 
 	// Set ports
@@ -587,10 +570,8 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 		return buildpacksCommands(s.App, dApp.Buildpacks), nil
 
 	case "secrets":
-		secretEnv := e.resolveSecrets(dApp.Secrets)
-		if len(secretEnv) > 0 {
-			return [][]string{configSetArgs(s.App, secretEnv)}, nil
-		}
+		// Secrets are managed directly in Dokku config, not by the Dokkufile.
+		// The secrets list only controls which keys are excluded from env drift.
 		return nil, nil
 
 	case "mail":
@@ -1158,17 +1139,6 @@ func globalLogCommands(logs *schema.LogConfig) [][]string {
 	return cmds
 }
 
-// resolveSecrets reads secret values from the host environment.
-func (e *Executor) resolveSecrets(secrets []string) map[string]string {
-	result := map[string]string{}
-	for _, key := range secrets {
-		val := e.getEnv(key)
-		if val != "" {
-			result[key] = val
-		}
-	}
-	return result
-}
 
 // mailLinkCommands generates mail:link/unlink commands for an app.
 func mailLinkCommands(appName, desired, actual string) [][]string {
