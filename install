@@ -18,11 +18,10 @@ TMPFILE=$(mktemp "$PLUGIN_DIR/dokkufile-bin.XXXXXX")
 trap "rm -f '$TMPFILE'" EXIT
 
 if [[ -x "$PLUGIN_DIR/dokkufile-bin" ]]; then
-  echo "dokkufile: checking for updates..."
   # -z only downloads if remote is newer than local file
   HTTP_CODE=$(curl -fsSL -z "$PLUGIN_DIR/dokkufile-bin" -o "$TMPFILE" -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
   if [[ "$HTTP_CODE" == "304" ]]; then
-    echo "dokkufile: binary already up to date"
+    :
   elif [[ "$HTTP_CODE" == "200" ]]; then
     mv "$TMPFILE" "$PLUGIN_DIR/dokkufile-bin"
     chmod +x "$PLUGIN_DIR/dokkufile-bin"
