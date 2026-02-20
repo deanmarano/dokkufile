@@ -28,6 +28,10 @@ cmd/
   apply.go               → execute plan (create/update apps, services, etc.)
   validate.go            → offline schema validation
   import.go              → docker-compose → dokkufile converter
+  stop.go                → stop all apps in the Dokkufile
+  restart.go             → restart all apps in the Dokkufile
+  status.go              → show status of apps and services
+  destroy.go             → destroy apps (and optionally services)
   version.go             → print version (set via ldflags)
 pkg/
   schema/schema.go       → Dokkufile struct, validation, Load/Parse
@@ -43,9 +47,10 @@ pkg/
 
 - **Additive-only**: plan/apply never destroy apps or services not in the Dokkufile. Resources not mentioned are left untouched.
 - **Scoped reads**: `ReadScoped()` only reads state for apps/services named in the Dokkufile (faster than full `Read()`).
-- **Secrets from host env**: The `secrets` field pulls values from the host's environment at apply time, so secrets never appear in the YAML.
+- **Secrets as preservation list**: The `secrets` field lists config keys managed directly in Dokku (e.g., `dokku config:set`). Apply never reads or writes their values — it only excludes them from env drift detection so they aren't flagged or unset.
 - **Phase ordering**: apply creates plugins → services → apps, then configures each app (domains, env, ports, storage, etc.) before deploying.
-- **Commands accept both `-f` flag and positional arg**: `plan`, `apply`, and `validate` all support `cmd [file]` and `cmd -f file`. Positional arg overrides the flag.
+- **Commands accept both `-f` flag and positional arg**: `plan`, `apply`, `validate`, `stop`, `restart`, `status`, and `destroy` all support `cmd [file]` and `cmd -f file`. Positional arg overrides the flag.
+- **Lifecycle commands**: `stop`, `restart`, `status`, and `destroy` operate on all apps in a Dokkufile as a unit. `stop`, `restart`, and `destroy` support `--app` to target a single app. `destroy` requires `--force` to skip confirmation and `--include-services` to also destroy backing services. All lifecycle commands use partial failure handling (continue on error, report all failures at end).
 
 ## Dependencies
 
@@ -69,7 +74,7 @@ The types: clickhouse, couchdb, elasticsearch, mariadb, meilisearch, memcached, 
 
 - **SSL round-trip**: `plan` cannot detect cert/key content changes (state reader can't read cert contents back from Dokku).
 - **Git repo round-trip**: `plan` cannot detect git repo URL changes (Dokku doesn't expose the source URL).
-- **No destructive convergence**: no way to declare "this app should not exist" and have it removed.
+- **No declarative destructive convergence**: no way to declare "this app should not exist" and have it removed via plan/apply. Use the `destroy` command for imperative teardown.
 
 ## Dokku Plugin Files
 
