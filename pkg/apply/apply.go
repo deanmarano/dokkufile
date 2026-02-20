@@ -21,7 +21,11 @@ type Executor struct {
 	FileRunner state.FileRunner
 	DryRun     bool
 	// EnvGetter reads environment variables for secrets. Defaults to os.Getenv.
-	EnvGetter  func(string) string
+	EnvGetter func(string) string
+	// CheckpointDir is the directory to store checkpoint files. Empty disables checkpointing.
+	CheckpointDir string
+	// DokkufilePath is the path to the Dokkufile, used for checkpoint hash validation.
+	DokkufilePath string
 }
 
 func (e *Executor) getEnv(key string) string {
@@ -32,41 +36,169 @@ func (e *Executor) getEnv(key string) string {
 }
 
 // Execute runs each step in the plan, using the desired and actual state for context.
+// If CheckpointDir is set, completed steps are saved on failure so that a subsequent
+// Execute call can resume from where it left off.
 func (e *Executor) Execute(p *plan.Plan, desired, actual *schema.Dokkufile) error {
+	// Load checkpoint if available
+	completedKeys, dokkufileHash, err := e.loadResumeState()
+	if err != nil {
+		return err
+	}
+
+	var completed []CompletedStep
+
 	for _, step := range p.Steps {
+		key := StepKey(step)
+
+		// Skip steps completed in a previous run
+		if completedKeys[key] {
+			fmt.Printf("Skipping (already done): %s\n", describeStep(step))
+			continue
+		}
+
 		cmds, err := e.commandsForStep(step, desired, actual)
 		if err != nil {
+			e.saveFailureCheckpoint(completed, dokkufileHash, key, err)
 			return fmt.Errorf("planning commands for %s: %w", describeStep(step), err)
 		}
 
-		for _, cmd := range cmds {
-			// Handle synthetic file-write commands
-			if len(cmd) >= 3 && cmd[0] == "__write-app-json" {
-				if e.DryRun {
-					fmt.Printf("[dry-run] write /home/dokku/%s/app.json\n", cmd[1])
-					continue
-				}
-				if e.FileRunner != nil {
-					path := fmt.Sprintf("/home/dokku/%s/app.json", cmd[1])
-					fmt.Printf("Writing: %s\n", path)
-					if err := e.FileRunner.WriteFile(path, []byte(cmd[2]), 0644); err != nil {
-						return fmt.Errorf("writing app.json: %w", err)
-					}
-				}
-				continue
-			}
-			if e.DryRun {
-				fmt.Printf("[dry-run] dokku %s\n", strings.Join(cmd, " "))
-				continue
-			}
-			fmt.Printf("Running: dokku %s\n", strings.Join(cmd, " "))
-			out, err := e.Runner.Run(cmd...)
-			if err != nil {
-				return fmt.Errorf("dokku %s: %s: %w", strings.Join(cmd, " "), out, err)
-			}
+		if err := e.runCommands(cmds); err != nil {
+			e.saveFailureCheckpoint(completed, dokkufileHash, key, err)
+			return err
+		}
+
+		completed = append(completed, CompletedStep{
+			StepKey:  key,
+			Commands: flattenCommands(cmds),
+		})
+	}
+
+	// Success — clear checkpoint if one exists
+	if e.CheckpointDir != "" {
+		if err := clearCheckpoint(e.CheckpointDir); err != nil {
+			fmt.Printf("Warning: failed to clear checkpoint: %v\n", err)
 		}
 	}
 	return nil
+}
+
+// runCommands executes a list of commands, handling synthetic file-write commands and dry-run mode.
+func (e *Executor) runCommands(cmds [][]string) error {
+	for _, cmd := range cmds {
+		// Handle synthetic file-write commands
+		if len(cmd) >= 3 && cmd[0] == "__write-app-json" {
+			if e.DryRun {
+				fmt.Printf("[dry-run] write /home/dokku/%s/app.json\n", cmd[1])
+				continue
+			}
+			if e.FileRunner != nil {
+				path := fmt.Sprintf("/home/dokku/%s/app.json", cmd[1])
+				fmt.Printf("Writing: %s\n", path)
+				if err := e.FileRunner.WriteFile(path, []byte(cmd[2]), 0644); err != nil {
+					return fmt.Errorf("writing app.json: %w", err)
+				}
+			}
+			continue
+		}
+		if e.DryRun {
+			fmt.Printf("[dry-run] dokku %s\n", strings.Join(cmd, " "))
+			continue
+		}
+		fmt.Printf("Running: dokku %s\n", strings.Join(cmd, " "))
+		out, err := e.Runner.Run(cmd...)
+		if err != nil {
+			if isAlreadyExistsError(cmd, out) {
+				fmt.Printf("  (already exists, continuing)\n")
+				continue
+			}
+			return fmt.Errorf("dokku %s: %s: %w", strings.Join(cmd, " "), out, err)
+		}
+	}
+	return nil
+}
+
+// isAlreadyExistsError returns true if the error from a create command indicates
+// the resource already exists. This allows resumed applies to skip past creates
+// that succeeded in a previous partial run.
+func isAlreadyExistsError(cmd []string, output string) bool {
+	if len(cmd) < 2 {
+		return false
+	}
+	lowerOut := strings.ToLower(output)
+	isCreate := cmd[0] == "apps:create" ||
+		strings.HasSuffix(cmd[0], ":create") ||
+		cmd[0] == "mail:create" ||
+		cmd[0] == "auth:create" ||
+		cmd[0] == "auth:frontend:create"
+	return isCreate && strings.Contains(lowerOut, "already exists")
+}
+
+// loadResumeState loads checkpoint data if checkpointing is enabled and a valid checkpoint exists.
+// Returns the set of completed step keys, the dokkufile hash (for saving), and any error.
+func (e *Executor) loadResumeState() (map[string]bool, string, error) {
+	completedKeys := map[string]bool{}
+	var dokkufileHash string
+
+	if e.CheckpointDir == "" {
+		return completedKeys, dokkufileHash, nil
+	}
+
+	// Compute current dokkufile hash
+	if e.DokkufilePath != "" {
+		var err error
+		dokkufileHash, err = hashFile(e.DokkufilePath)
+		if err != nil {
+			return completedKeys, dokkufileHash, fmt.Errorf("hashing dokkufile: %w", err)
+		}
+	}
+
+	cp, err := loadCheckpoint(e.CheckpointDir)
+	if err != nil {
+		return completedKeys, dokkufileHash, fmt.Errorf("loading checkpoint: %w", err)
+	}
+	if cp == nil {
+		return completedKeys, dokkufileHash, nil
+	}
+
+	// Validate checkpoint against current dokkufile
+	if dokkufileHash != "" && cp.DokkufileHash != dokkufileHash {
+		fmt.Println("Warning: Dokkufile changed since last run. Ignoring checkpoint.")
+		if err := clearCheckpoint(e.CheckpointDir); err != nil {
+			fmt.Printf("Warning: failed to clear stale checkpoint: %v\n", err)
+		}
+		return completedKeys, dokkufileHash, nil
+	}
+
+	for _, cs := range cp.CompletedSteps {
+		completedKeys[cs.StepKey] = true
+	}
+	fmt.Printf("Resuming from checkpoint (%d steps already completed)\n", len(cp.CompletedSteps))
+
+	return completedKeys, dokkufileHash, nil
+}
+
+// saveFailureCheckpoint saves a checkpoint recording completed steps and the failed step.
+func (e *Executor) saveFailureCheckpoint(completed []CompletedStep, dokkufileHash, failedKey string, failErr error) {
+	if e.CheckpointDir == "" || e.DryRun {
+		return
+	}
+	cp := newCheckpoint(dokkufileHash)
+	cp.CompletedSteps = completed
+	cp.FailedStep = &StepRecord{StepKey: failedKey, Error: failErr.Error()}
+	if err := saveCheckpoint(e.CheckpointDir, cp); err != nil {
+		fmt.Printf("Warning: failed to save checkpoint: %v\n", err)
+		return
+	}
+	fmt.Printf("Checkpoint saved. Re-run apply to resume from step %d.\n", len(completed)+1)
+}
+
+// flattenCommands converts a slice of command arg slices into a slice of command strings.
+func flattenCommands(cmds [][]string) []string {
+	result := make([]string, len(cmds))
+	for i, cmd := range cmds {
+		result[i] = strings.Join(cmd, " ")
+	}
+	return result
 }
 
 // commandsForStep translates a plan step into one or more dokku command arg slices.
