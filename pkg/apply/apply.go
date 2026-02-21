@@ -31,30 +31,31 @@ type Executor struct {
 // Execute call can resume from where it left off.
 func (e *Executor) Execute(p *plan.Plan, desired, actual *schema.Dokkufile) error {
 	// Load checkpoint if available
-	completedKeys, dokkufileHash, err := e.loadResumeState()
+	rs, err := e.loadResumeState()
 	if err != nil {
 		return err
 	}
 
-	var completed []CompletedStep
+	// Seed completed steps from prior checkpoint so they carry forward on failure
+	completed := append([]CompletedStep{}, rs.priorSteps...)
 
 	for _, step := range p.Steps {
 		key := StepKey(step)
 
 		// Skip steps completed in a previous run
-		if completedKeys[key] {
+		if rs.completedKeys[key] {
 			fmt.Printf("Skipping (already done): %s\n", describeStep(step))
 			continue
 		}
 
 		cmds, err := e.commandsForStep(step, desired, actual)
 		if err != nil {
-			e.saveFailureCheckpoint(completed, dokkufileHash, key, err)
+			e.saveFailureCheckpoint(completed, rs.dokkufileHash, key, err)
 			return fmt.Errorf("planning commands for %s: %w", describeStep(step), err)
 		}
 
 		if err := e.runCommands(cmds); err != nil {
-			e.saveFailureCheckpoint(completed, dokkufileHash, key, err)
+			e.saveFailureCheckpoint(completed, rs.dokkufileHash, key, err)
 			return err
 		}
 
@@ -124,53 +125,57 @@ func isAlreadyExistsError(cmd []string, output string) bool {
 	return isCreate && strings.Contains(lowerOut, "already exists")
 }
 
-// loadResumeState loads checkpoint data if checkpointing is enabled and a valid checkpoint exists.
-// Returns the set of completed step keys, the dokkufile hash (for saving), and any error.
-func (e *Executor) loadResumeState() (map[string]bool, string, error) {
-	completedKeys := map[string]bool{}
-	var dokkufileHash string
+// resumeState holds the state loaded from a checkpoint for use during execution.
+type resumeState struct {
+	completedKeys map[string]bool
+	priorSteps    []CompletedStep
+	dokkufileHash string
+}
 
-	if e.CheckpointDir == "" {
-		return completedKeys, dokkufileHash, nil
+// loadResumeState loads checkpoint data if checkpointing is enabled and a valid checkpoint exists.
+func (e *Executor) loadResumeState() (*resumeState, error) {
+	rs := &resumeState{completedKeys: map[string]bool{}}
+
+	if e.CheckpointDir == "" || e.DokkufilePath == "" {
+		return rs, nil
 	}
 
 	// Compute current dokkufile hash
-	if e.DokkufilePath != "" {
-		var err error
-		dokkufileHash, err = hashFile(e.DokkufilePath)
-		if err != nil {
-			return completedKeys, dokkufileHash, fmt.Errorf("hashing dokkufile: %w", err)
-		}
+	var err error
+	rs.dokkufileHash, err = hashFile(e.DokkufilePath)
+	if err != nil {
+		return rs, fmt.Errorf("hashing dokkufile: %w", err)
 	}
 
 	cp, err := loadCheckpoint(e.CheckpointDir)
 	if err != nil {
-		return completedKeys, dokkufileHash, fmt.Errorf("loading checkpoint: %w", err)
+		return rs, fmt.Errorf("loading checkpoint: %w", err)
 	}
 	if cp == nil {
-		return completedKeys, dokkufileHash, nil
+		return rs, nil
 	}
 
 	// Validate checkpoint against current dokkufile
-	if dokkufileHash != "" && cp.DokkufileHash != dokkufileHash {
+	if rs.dokkufileHash != "" && cp.DokkufileHash != rs.dokkufileHash {
 		fmt.Println("Warning: Dokkufile changed since last run. Ignoring checkpoint.")
 		if err := clearCheckpoint(e.CheckpointDir); err != nil {
 			fmt.Printf("Warning: failed to clear stale checkpoint: %v\n", err)
 		}
-		return completedKeys, dokkufileHash, nil
+		return rs, nil
 	}
 
 	for _, cs := range cp.CompletedSteps {
-		completedKeys[cs.StepKey] = true
+		rs.completedKeys[cs.StepKey] = true
 	}
+	rs.priorSteps = cp.CompletedSteps
 	fmt.Printf("Resuming from checkpoint (%d steps already completed)\n", len(cp.CompletedSteps))
 
-	return completedKeys, dokkufileHash, nil
+	return rs, nil
 }
 
 // saveFailureCheckpoint saves a checkpoint recording completed steps and the failed step.
 func (e *Executor) saveFailureCheckpoint(completed []CompletedStep, dokkufileHash, failedKey string, failErr error) {
-	if e.CheckpointDir == "" || e.DryRun {
+	if e.CheckpointDir == "" || e.DokkufilePath == "" || e.DryRun {
 		return
 	}
 	cp := newCheckpoint(dokkufileHash)

@@ -175,10 +175,12 @@ func TestHashFile(t *testing.T) {
 }
 
 // checkpointTestRunner records commands and optionally fails on a specific command prefix.
+// It also supports returning "already exists" errors for create commands.
 type checkpointTestRunner struct {
-	commands  [][]string
-	failOn    string // command prefix that should fail
-	failOutput string // error output for the failing command
+	commands       [][]string
+	failOn         string            // command prefix that should fail
+	failOutput     string            // error output for the failing command
+	alreadyExists  map[string]bool   // command prefixes that return "already exists" errors
 }
 
 func (r *checkpointTestRunner) Run(args ...string) (string, error) {
@@ -188,6 +190,11 @@ func (r *checkpointTestRunner) Run(args ...string) (string, error) {
 	cmdStr := strings.Join(cmd, " ")
 	if r.failOn != "" && strings.HasPrefix(cmdStr, r.failOn) {
 		return r.failOutput, fmt.Errorf("exit status 1")
+	}
+	for prefix := range r.alreadyExists {
+		if strings.HasPrefix(cmdStr, prefix) {
+			return fmt.Sprintf("%s already exists", args[len(args)-1]), fmt.Errorf("exit status 1")
+		}
 	}
 	return "", nil
 }
@@ -443,6 +450,235 @@ func TestExecuteNoCheckpointInDryRun(t *testing.T) {
 	loadedCP, _ := loadCheckpoint(dir)
 	if loadedCP != nil {
 		t.Error("checkpoint should not be saved in dry-run mode")
+	}
+}
+
+func TestPartialCreateAppResume(t *testing.T) {
+	dir := t.TempDir()
+	dokkufilePath := filepath.Join(dir, "Dokkufile.yml")
+	if err := os.WriteFile(dokkufilePath, []byte("version: '1'\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateApp, App: "myapp"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version: "1",
+		Apps: map[string]schema.App{
+			"myapp": {
+				Image:   "nginx:latest",
+				Domains: []string{"myapp.example.com"},
+				Env:     map[string]string{"NODE_ENV": "production"},
+			},
+		},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	// First run: apps:create succeeds, git:from-image fails
+	runner1 := &checkpointTestRunner{failOn: "git:from-image", failOutput: "deploy failed"}
+	executor1 := &Executor{
+		Runner:        runner1,
+		CheckpointDir: dir,
+		DokkufilePath: dokkufilePath,
+	}
+
+	oldStdout := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
+	defer func() { os.Stdout = oldStdout }()
+
+	err := executor1.Execute(p, desired, actual)
+	if err == nil {
+		t.Fatal("expected error on first run")
+	}
+
+	// Verify apps:create ran but step is NOT marked complete (it failed partway)
+	if runner1.commands[0][0] != "apps:create" {
+		t.Errorf("expected apps:create as first command, got: %s", runner1.commands[0][0])
+	}
+	cp, _ := loadCheckpoint(dir)
+	if cp == nil {
+		t.Fatal("expected checkpoint after failure")
+	}
+	if len(cp.CompletedSteps) != 0 {
+		t.Errorf("CreateApp should NOT be marked complete, got %d completed steps", len(cp.CompletedSteps))
+	}
+
+	// Second run: apps:create returns "already exists" (tolerated), deploy succeeds
+	runner2 := &checkpointTestRunner{
+		alreadyExists: map[string]bool{"apps:create": true},
+	}
+	executor2 := &Executor{
+		Runner:        runner2,
+		CheckpointDir: dir,
+		DokkufilePath: dokkufilePath,
+	}
+
+	err = executor2.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("expected success on resume, got: %v", err)
+	}
+
+	// Verify apps:create was attempted (and tolerated), then the rest ran
+	cmds := runner2.commandStrings()
+	foundCreate := false
+	foundDeploy := false
+	for _, c := range cmds {
+		if strings.HasPrefix(c, "apps:create") {
+			foundCreate = true
+		}
+		if strings.HasPrefix(c, "git:from-image") {
+			foundDeploy = true
+		}
+	}
+	if !foundCreate {
+		t.Errorf("expected apps:create to be re-attempted, got: %v", cmds)
+	}
+	if !foundDeploy {
+		t.Errorf("expected git:from-image to run on resume, got: %v", cmds)
+	}
+
+	// Checkpoint should be cleared
+	cpAfter, _ := loadCheckpoint(dir)
+	if cpAfter != nil {
+		t.Error("checkpoint should be cleared after successful resume")
+	}
+}
+
+func TestResumedApplyWithNewFailure(t *testing.T) {
+	dir := t.TempDir()
+	dokkufilePath := filepath.Join(dir, "Dokkufile.yml")
+	if err := os.WriteFile(dokkufilePath, []byte("version: '1'\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	dfHash, _ := hashFile(dokkufilePath)
+
+	// Simulate a previous run where step 1 completed
+	cp := &Checkpoint{
+		DokkufileHash: dfHash,
+		CompletedSteps: []CompletedStep{
+			{StepKey: "create_service:postgres:mydb", Commands: []string{"postgres:create mydb"}},
+		},
+		FailedStep: &StepRecord{StepKey: "create_service:redis:mycache", Error: "exit status 1"},
+		CreatedAt:  "2026-01-01T00:00:00Z",
+	}
+	if err := saveCheckpoint(dir, cp); err != nil {
+		t.Fatalf("saveCheckpoint: %v", err)
+	}
+
+	// Plan has 3 steps: step 1 already done, step 2 should succeed now, step 3 fails
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateService, Service: "mydb", ServiceType: "postgres"},
+			{Action: plan.CreateService, Service: "mycache", ServiceType: "redis"},
+			{Action: plan.CreateApp, App: "myapp"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version:  "1",
+		Services: map[string]schema.Service{
+			"mydb":    {Type: "postgres"},
+			"mycache": {Type: "redis"},
+		},
+		Apps: map[string]schema.App{"myapp": {Image: "nginx:latest"}},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	// Step 2 (redis:create) succeeds, step 3 (CreateApp -> git:from-image) fails
+	runner := &checkpointTestRunner{failOn: "git:from-image", failOutput: "deploy failed"}
+	executor := &Executor{
+		Runner:        runner,
+		CheckpointDir: dir,
+		DokkufilePath: dokkufilePath,
+	}
+
+	oldStdout := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
+	defer func() { os.Stdout = oldStdout }()
+
+	err := executor.Execute(p, desired, actual)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	// New checkpoint should have BOTH step 1 (from old checkpoint) AND step 2 (newly completed)
+	newCP, loadErr := loadCheckpoint(dir)
+	if loadErr != nil {
+		t.Fatalf("loadCheckpoint: %v", loadErr)
+	}
+	if newCP == nil {
+		t.Fatal("expected new checkpoint")
+	}
+	if len(newCP.CompletedSteps) != 2 {
+		t.Errorf("expected 2 completed steps (old + new), got %d", len(newCP.CompletedSteps))
+	}
+
+	// Verify the completed steps are correct
+	keys := map[string]bool{}
+	for _, cs := range newCP.CompletedSteps {
+		keys[cs.StepKey] = true
+	}
+	if !keys["create_service:postgres:mydb"] {
+		t.Error("missing original completed step create_service:postgres:mydb")
+	}
+	if !keys["create_service:redis:mycache"] {
+		t.Error("missing newly completed step create_service:redis:mycache")
+	}
+
+	// Failed step should be the CreateApp
+	if newCP.FailedStep == nil || newCP.FailedStep.StepKey != "create_app:myapp" {
+		t.Errorf("expected failed step create_app:myapp, got: %v", newCP.FailedStep)
+	}
+}
+
+func TestCheckpointDisabledWithoutDokkufilePath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Save a checkpoint with empty hash (simulating a previous run without DokkufilePath)
+	cp := &Checkpoint{
+		DokkufileHash: "",
+		CompletedSteps: []CompletedStep{
+			{StepKey: "create_service:postgres:mydb", Commands: []string{"postgres:create mydb"}},
+		},
+		CreatedAt: "2026-01-01T00:00:00Z",
+	}
+	if err := saveCheckpoint(dir, cp); err != nil {
+		t.Fatalf("saveCheckpoint: %v", err)
+	}
+
+	p := &plan.Plan{
+		Steps: []plan.Step{
+			{Action: plan.CreateService, Service: "mydb", ServiceType: "postgres"},
+		},
+	}
+	desired := &schema.Dokkufile{
+		Version:  "1",
+		Services: map[string]schema.Service{"mydb": {Type: "postgres"}},
+	}
+	actual := &schema.Dokkufile{Version: "1"}
+
+	runner := &checkpointTestRunner{}
+	executor := &Executor{
+		Runner:        runner,
+		CheckpointDir: dir,
+		// DokkufilePath intentionally empty — simulates plugin context
+	}
+
+	oldStdout := os.Stdout
+	os.Stdout, _ = os.Open(os.DevNull)
+	defer func() { os.Stdout = oldStdout }()
+
+	err := executor.Execute(p, desired, actual)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Without DokkufilePath, checkpoint should be ignored and step should re-run
+	if len(runner.commands) != 1 {
+		t.Errorf("expected 1 command (checkpoint should be ignored without DokkufilePath), got %d: %v",
+			len(runner.commands), runner.commandStrings())
 	}
 }
 
