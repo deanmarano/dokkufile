@@ -414,7 +414,7 @@ func parseReportConfigFields(output string) map[string]string {
 	return result
 }
 
-// parseOIDCClients parses auth:oidc:list output into OIDCClient structs.
+// parseOIDCClients parses sso:oidc:list output into OIDCClient structs.
 // Expected format: "ID  SECRET  REDIRECT_URI" rows after a header.
 func parseOIDCClients(output string) []schema.OIDCClient {
 	var clients []schema.OIDCClient

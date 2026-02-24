@@ -120,8 +120,8 @@ func isAlreadyExistsError(cmd []string, output string) bool {
 	isCreate := cmd[0] == "apps:create" ||
 		strings.HasSuffix(cmd[0], ":create") ||
 		cmd[0] == "mail:create" ||
-		cmd[0] == "auth:create" ||
-		cmd[0] == "auth:frontend:create"
+		cmd[0] == "sso:create" ||
+		cmd[0] == "sso:frontend:create"
 	return isCreate && strings.Contains(lowerOut, "already exists")
 }
 
@@ -231,7 +231,7 @@ func (e *Executor) commandsForStep(s plan.Step, desired, actual *schema.Dokkufil
 		return e.createAuthDirectoryCommands(s.Service, desired)
 
 	case plan.DestroyAuthDirectory:
-		return [][]string{{"auth:destroy", s.Service, "--force"}}, nil
+		return [][]string{{"sso:destroy", s.Service, "--force"}}, nil
 
 	case plan.UpdateAuthDirectory:
 		return e.updateAuthDirectoryCommands(s.Service, desired)
@@ -240,7 +240,7 @@ func (e *Executor) commandsForStep(s plan.Step, desired, actual *schema.Dokkufil
 		return e.createAuthFrontendCommands(s.Service, desired)
 
 	case plan.DestroyAuthFrontend:
-		return [][]string{{"auth:frontend:destroy", s.Service, "--force"}}, nil
+		return [][]string{{"sso:frontend:destroy", s.Service, "--force"}}, nil
 
 	case plan.UpdateAuthFrontend:
 		return e.updateAuthFrontendCommands(s.Service, desired, actual)
@@ -415,10 +415,10 @@ func (e *Executor) createAppCommands(appName string, desired *schema.Dokkufile) 
 	// Auth link + protection
 	if app.Auth != nil {
 		if app.Auth.Directory != "" {
-			cmds = append(cmds, []string{"auth:link", app.Auth.Directory, appName})
+			cmds = append(cmds, []string{"sso:link", app.Auth.Directory, appName})
 		}
 		if app.Auth.Protected != "" {
-			cmds = append(cmds, []string{"auth:frontend:protect", app.Auth.Protected, appName})
+			cmds = append(cmds, []string{"sso:frontend:protect", app.Auth.Protected, appName})
 		}
 	}
 
@@ -854,15 +854,15 @@ func (e *Executor) createAuthDirectoryCommands(name string, desired *schema.Dokk
 		return nil, fmt.Errorf("auth directory %q not found in desired state", name)
 	}
 	var cmds [][]string
-	cmds = append(cmds, []string{"auth:create", name})
+	cmds = append(cmds, []string{"sso:create", name})
 	if dir.Provider != "" {
-		cmds = append(cmds, []string{"auth:provider:set", name, dir.Provider})
+		cmds = append(cmds, []string{"sso:provider:set", name, dir.Provider})
 	}
 	for _, k := range sortedKeys(dir.Config) {
-		cmds = append(cmds, []string{"auth:provider:config", name, fmt.Sprintf("%s=%s", k, dir.Config[k])})
+		cmds = append(cmds, []string{"sso:provider:config", name, fmt.Sprintf("%s=%s", k, dir.Config[k])})
 	}
 	if dir.Provider != "" {
-		cmds = append(cmds, []string{"auth:provider:apply", name})
+		cmds = append(cmds, []string{"sso:provider:apply", name})
 	}
 	return cmds, nil
 }
@@ -874,13 +874,13 @@ func (e *Executor) updateAuthDirectoryCommands(name string, desired *schema.Dokk
 	}
 	var cmds [][]string
 	if dir.Provider != "" {
-		cmds = append(cmds, []string{"auth:provider:set", name, dir.Provider})
+		cmds = append(cmds, []string{"sso:provider:set", name, dir.Provider})
 	}
 	for _, k := range sortedKeys(dir.Config) {
-		cmds = append(cmds, []string{"auth:provider:config", name, fmt.Sprintf("%s=%s", k, dir.Config[k])})
+		cmds = append(cmds, []string{"sso:provider:config", name, fmt.Sprintf("%s=%s", k, dir.Config[k])})
 	}
 	if dir.Provider != "" {
-		cmds = append(cmds, []string{"auth:provider:apply", name})
+		cmds = append(cmds, []string{"sso:provider:apply", name})
 	}
 	return cmds, nil
 }
@@ -892,26 +892,26 @@ func (e *Executor) createAuthFrontendCommands(name string, desired *schema.Dokku
 		return nil, fmt.Errorf("auth frontend %q not found in desired state", name)
 	}
 	var cmds [][]string
-	cmds = append(cmds, []string{"auth:frontend:create", name})
+	cmds = append(cmds, []string{"sso:frontend:create", name})
 	if fe.Provider != "" {
-		cmds = append(cmds, []string{"auth:frontend:provider:set", name, fe.Provider})
+		cmds = append(cmds, []string{"sso:frontend:provider:set", name, fe.Provider})
 	}
 	if fe.Directory != "" {
-		cmds = append(cmds, []string{"auth:frontend:use-directory", name, fe.Directory})
+		cmds = append(cmds, []string{"sso:frontend:use-directory", name, fe.Directory})
 	}
 	for _, k := range sortedKeys(fe.Config) {
-		cmds = append(cmds, []string{"auth:frontend:config", name, fmt.Sprintf("%s=%s", k, fe.Config[k])})
+		cmds = append(cmds, []string{"sso:frontend:config", name, fmt.Sprintf("%s=%s", k, fe.Config[k])})
 	}
 	if fe.Provider != "" {
-		cmds = append(cmds, []string{"auth:frontend:apply", name})
+		cmds = append(cmds, []string{"sso:frontend:apply", name})
 	}
 	for _, app := range fe.ProtectedApps {
-		cmds = append(cmds, []string{"auth:frontend:protect", name, app})
+		cmds = append(cmds, []string{"sso:frontend:protect", name, app})
 	}
 	if fe.OIDCEnabled {
-		cmds = append(cmds, []string{"auth:oidc:enable", name})
+		cmds = append(cmds, []string{"sso:oidc:enable", name})
 		for _, client := range fe.OIDCClients {
-			cmd := []string{"auth:oidc:add-client", name, client.ID}
+			cmd := []string{"sso:oidc:add-client", name, client.ID}
 			if client.Secret != "" {
 				cmd = append(cmd, client.Secret)
 			}
@@ -932,16 +932,16 @@ func (e *Executor) updateAuthFrontendCommands(name string, desired, actual *sche
 	var cmds [][]string
 
 	if fe.Provider != "" {
-		cmds = append(cmds, []string{"auth:frontend:provider:set", name, fe.Provider})
+		cmds = append(cmds, []string{"sso:frontend:provider:set", name, fe.Provider})
 	}
 	if fe.Directory != "" {
-		cmds = append(cmds, []string{"auth:frontend:use-directory", name, fe.Directory})
+		cmds = append(cmds, []string{"sso:frontend:use-directory", name, fe.Directory})
 	}
 	for _, k := range sortedKeys(fe.Config) {
-		cmds = append(cmds, []string{"auth:frontend:config", name, fmt.Sprintf("%s=%s", k, fe.Config[k])})
+		cmds = append(cmds, []string{"sso:frontend:config", name, fmt.Sprintf("%s=%s", k, fe.Config[k])})
 	}
 	if fe.Provider != "" {
-		cmds = append(cmds, []string{"auth:frontend:apply", name})
+		cmds = append(cmds, []string{"sso:frontend:apply", name})
 	}
 
 	// Unprotect removed apps, protect new apps
@@ -950,20 +950,20 @@ func (e *Executor) updateAuthFrontendCommands(name string, desired, actual *sche
 	desiredProtected := toSet(fe.ProtectedApps)
 	for _, app := range actualFE.ProtectedApps {
 		if !desiredProtected[app] {
-			cmds = append(cmds, []string{"auth:frontend:unprotect", name, app})
+			cmds = append(cmds, []string{"sso:frontend:unprotect", name, app})
 		}
 	}
 	for _, app := range fe.ProtectedApps {
 		if !actualProtected[app] {
-			cmds = append(cmds, []string{"auth:frontend:protect", name, app})
+			cmds = append(cmds, []string{"sso:frontend:protect", name, app})
 		}
 	}
 
 	// OIDC
 	if fe.OIDCEnabled && !actualFE.OIDCEnabled {
-		cmds = append(cmds, []string{"auth:oidc:enable", name})
+		cmds = append(cmds, []string{"sso:oidc:enable", name})
 	} else if !fe.OIDCEnabled && actualFE.OIDCEnabled {
-		cmds = append(cmds, []string{"auth:oidc:disable", name})
+		cmds = append(cmds, []string{"sso:oidc:disable", name})
 	}
 
 	if fe.OIDCEnabled {
@@ -978,12 +978,12 @@ func (e *Executor) updateAuthFrontendCommands(name string, desired, actual *sche
 		}
 		for _, c := range actualFE.OIDCClients {
 			if !desiredClients[c.ID] {
-				cmds = append(cmds, []string{"auth:oidc:remove-client", name, c.ID})
+				cmds = append(cmds, []string{"sso:oidc:remove-client", name, c.ID})
 			}
 		}
 		for _, c := range fe.OIDCClients {
 			if !actualClients[c.ID] {
-				cmd := []string{"auth:oidc:add-client", name, c.ID}
+				cmd := []string{"sso:oidc:add-client", name, c.ID}
 				if c.Secret != "" {
 					cmd = append(cmd, c.Secret)
 				}
@@ -1157,7 +1157,7 @@ func mailLinkCommands(appName, desired, actual string) [][]string {
 	return cmds
 }
 
-// authLinkCommands generates auth:link/unlink and auth:frontend:protect/unprotect commands for an app.
+// authLinkCommands generates sso:link/unlink and sso:frontend:protect/unprotect commands for an app.
 func authLinkCommands(appName string, desired, actual *schema.AuthConfig) [][]string {
 	var cmds [][]string
 	oldDir := ""
@@ -1173,16 +1173,16 @@ func authLinkCommands(appName string, desired, actual *schema.AuthConfig) [][]st
 		newProtected = desired.Protected
 	}
 	if oldDir != "" && oldDir != newDir {
-		cmds = append(cmds, []string{"auth:unlink", oldDir, appName})
+		cmds = append(cmds, []string{"sso:unlink", oldDir, appName})
 	}
 	if newDir != "" && newDir != oldDir {
-		cmds = append(cmds, []string{"auth:link", newDir, appName})
+		cmds = append(cmds, []string{"sso:link", newDir, appName})
 	}
 	if oldProtected != "" && oldProtected != newProtected {
-		cmds = append(cmds, []string{"auth:frontend:unprotect", oldProtected, appName})
+		cmds = append(cmds, []string{"sso:frontend:unprotect", oldProtected, appName})
 	}
 	if newProtected != "" && newProtected != oldProtected {
-		cmds = append(cmds, []string{"auth:frontend:protect", newProtected, appName})
+		cmds = append(cmds, []string{"sso:frontend:protect", newProtected, appName})
 	}
 	return cmds
 }

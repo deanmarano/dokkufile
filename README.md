@@ -199,7 +199,7 @@ apps:
       predeploy: bundle exec rake db:migrate
       postdeploy: bundle exec rake cache:clear
 
-    # Auth (dokku-auth plugin)
+    # SSO (dokku-sso plugin)
     auth:
       directory: ldap
       protected: authelia

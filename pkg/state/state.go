@@ -146,14 +146,14 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 
 	// Read auth directories.
 	var authDirNames []string
-	if out, err := r.Runner.Run("auth:list"); err == nil {
+	if out, err := r.Runner.Run("sso:list"); err == nil {
 		authDirNames = parseServiceList(out)
 		if len(authDirNames) > 0 {
 			df.AuthDirectories = map[string]schema.AuthDirectory{}
 		}
 		for _, name := range authDirNames {
 			dir := schema.AuthDirectory{}
-			if info, err := r.Runner.Run("auth:info", name); err == nil {
+			if info, err := r.Runner.Run("sso:info", name); err == nil {
 				dir.Provider = parseReportField(info, "Provider")
 				cfg := parseReportConfigFields(info)
 				if len(cfg) > 0 {
@@ -165,14 +165,14 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 	}
 
 	// Read auth frontends.
-	if out, err := r.Runner.Run("auth:frontend:list"); err == nil {
+	if out, err := r.Runner.Run("sso:frontend:list"); err == nil {
 		feNames := parseServiceList(out)
 		if len(feNames) > 0 {
 			df.AuthFrontends = map[string]schema.AuthFrontend{}
 		}
 		for _, name := range feNames {
 			fe := schema.AuthFrontend{}
-			if info, err := r.Runner.Run("auth:frontend:info", name); err == nil {
+			if info, err := r.Runner.Run("sso:frontend:info", name); err == nil {
 				fe.Provider = parseReportField(info, "Provider")
 				if dir := parseReportField(info, "Directory"); dir != "" && dir != "(none)" {
 					fe.Directory = dir
@@ -187,7 +187,7 @@ func (r *DokkuReader) Read() (*schema.Dokkufile, error) {
 				}
 			}
 			// OIDC
-			if oidcOut, err := r.Runner.Run("auth:oidc:list", name); err == nil {
+			if oidcOut, err := r.Runner.Run("sso:oidc:list", name); err == nil {
 				clients := parseOIDCClients(oidcOut)
 				if len(clients) > 0 {
 					fe.OIDCEnabled = true
@@ -626,7 +626,7 @@ func (r *DokkuReader) readApp(appName string, ctx *readAppContext) schema.App {
 
 	// Auth link — check each auth directory
 	for _, dirName := range ctx.authDirNames {
-		if _, err := r.Runner.Run("auth:linked", dirName, appName); err == nil {
+		if _, err := r.Runner.Run("sso:linked", dirName, appName); err == nil {
 			if app.Auth == nil {
 				app.Auth = &schema.AuthConfig{}
 			}
@@ -738,14 +738,14 @@ func (r *DokkuReader) ReadScoped(scope *schema.Dokkufile) (*schema.Dokkufile, er
 		}
 	}
 	if needAuth {
-		if out, err := r.Runner.Run("auth:list"); err == nil {
+		if out, err := r.Runner.Run("sso:list"); err == nil {
 			authDirNames = parseServiceList(out)
 			if len(authDirNames) > 0 {
 				df.AuthDirectories = map[string]schema.AuthDirectory{}
 			}
 			for _, name := range authDirNames {
 				dir := schema.AuthDirectory{}
-				if info, err := r.Runner.Run("auth:info", name); err == nil {
+				if info, err := r.Runner.Run("sso:info", name); err == nil {
 					dir.Provider = parseReportField(info, "Provider")
 					cfg := parseReportConfigFields(info)
 					if len(cfg) > 0 {
@@ -768,14 +768,14 @@ func (r *DokkuReader) ReadScoped(scope *schema.Dokkufile) (*schema.Dokkufile, er
 		}
 	}
 	if needFrontend {
-		if out, err := r.Runner.Run("auth:frontend:list"); err == nil {
+		if out, err := r.Runner.Run("sso:frontend:list"); err == nil {
 			feNames := parseServiceList(out)
 			if len(feNames) > 0 {
 				df.AuthFrontends = map[string]schema.AuthFrontend{}
 			}
 			for _, name := range feNames {
 				fe := schema.AuthFrontend{}
-				if info, err := r.Runner.Run("auth:frontend:info", name); err == nil {
+				if info, err := r.Runner.Run("sso:frontend:info", name); err == nil {
 					fe.Provider = parseReportField(info, "Provider")
 					if dir := parseReportField(info, "Directory"); dir != "" && dir != "(none)" {
 						fe.Directory = dir
@@ -790,7 +790,7 @@ func (r *DokkuReader) ReadScoped(scope *schema.Dokkufile) (*schema.Dokkufile, er
 					}
 				}
 				// OIDC
-				if oidcOut, err := r.Runner.Run("auth:oidc:list", name); err == nil {
+				if oidcOut, err := r.Runner.Run("sso:oidc:list", name); err == nil {
 					clients := parseOIDCClients(oidcOut)
 					if len(clients) > 0 {
 						fe.OIDCEnabled = true

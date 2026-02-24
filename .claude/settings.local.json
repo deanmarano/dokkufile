@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(CGO_ENABLED=0 go test:*)",
+      "Bash(git push:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run watch:*)",
+      "Bash(gh run view:*)",
+      "Bash(git commit:*)",
+      "Bash(CGO_ENABLED=0 go build:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

@@ -848,17 +848,17 @@ func TestCreateAuthDirectory(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	if !runner.hasCommand("auth:create", "mydir") {
-		t.Errorf("expected auth:create, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:create", "mydir") {
+		t.Errorf("expected sso:create, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:provider:set", "mydir", "ldap") {
-		t.Errorf("expected auth:provider:set, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:provider:set", "mydir", "ldap") {
+		t.Errorf("expected sso:provider:set, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:provider:config", "mydir", "url=ldap://example.com") {
-		t.Errorf("expected auth:provider:config, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:provider:config", "mydir", "url=ldap://example.com") {
+		t.Errorf("expected sso:provider:config, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:provider:apply", "mydir") {
-		t.Errorf("expected auth:provider:apply, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:provider:apply", "mydir") {
+		t.Errorf("expected sso:provider:apply, got: %v", runner.commandStrings())
 	}
 }
 
@@ -892,23 +892,23 @@ func TestCreateAuthFrontend(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	if !runner.hasCommand("auth:frontend:create", "myfe") {
-		t.Errorf("expected auth:frontend:create, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:create", "myfe") {
+		t.Errorf("expected sso:frontend:create, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:frontend:provider:set", "myfe", "oauth2") {
-		t.Errorf("expected auth:frontend:provider:set, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:provider:set", "myfe", "oauth2") {
+		t.Errorf("expected sso:frontend:provider:set, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:frontend:use-directory", "myfe", "mydir") {
-		t.Errorf("expected auth:frontend:use-directory, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:use-directory", "myfe", "mydir") {
+		t.Errorf("expected sso:frontend:use-directory, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:frontend:protect", "myfe", "webapp") {
-		t.Errorf("expected auth:frontend:protect, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:protect", "myfe", "webapp") {
+		t.Errorf("expected sso:frontend:protect, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:oidc:enable", "myfe") {
-		t.Errorf("expected auth:oidc:enable, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:oidc:enable", "myfe") {
+		t.Errorf("expected sso:oidc:enable, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:oidc:add-client", "myfe", "client1", "secret1", "https://example.com/callback") {
-		t.Errorf("expected auth:oidc:add-client, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:oidc:add-client", "myfe", "client1", "secret1", "https://example.com/callback") {
+		t.Errorf("expected sso:oidc:add-client, got: %v", runner.commandStrings())
 	}
 }
 
@@ -929,8 +929,8 @@ func TestDestroyAuthFrontend(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	if !runner.hasCommand("auth:frontend:destroy", "myfe", "--force") {
-		t.Errorf("expected auth:frontend:destroy, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:destroy", "myfe", "--force") {
+		t.Errorf("expected sso:frontend:destroy, got: %v", runner.commandStrings())
 	}
 }
 
@@ -2123,11 +2123,11 @@ func TestAuthLinkUpdate(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	if !runner.hasCommand("auth:unlink", "olddir", "myapp") {
-		t.Errorf("expected auth:unlink olddir, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:unlink", "olddir", "myapp") {
+		t.Errorf("expected sso:unlink olddir, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:link", "newdir", "myapp") {
-		t.Errorf("expected auth:link newdir, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:link", "newdir", "myapp") {
+		t.Errorf("expected sso:link newdir, got: %v", runner.commandStrings())
 	}
 }
 
@@ -2160,8 +2160,8 @@ func TestCreateAppWithMailAndAuth(t *testing.T) {
 	if !runner.hasCommand("mail:link", "mymail", "myapp") {
 		t.Errorf("expected mail:link mymail, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:link", "mydir", "myapp") {
-		t.Errorf("expected auth:link mydir, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:link", "mydir", "myapp") {
+		t.Errorf("expected sso:link mydir, got: %v", runner.commandStrings())
 	}
 }
 
@@ -2282,11 +2282,11 @@ func TestAuthProtectedUpdate(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	if !runner.hasCommand("auth:frontend:unprotect", "oldfe", "myapp") {
-		t.Errorf("expected auth:frontend:unprotect oldfe, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:unprotect", "oldfe", "myapp") {
+		t.Errorf("expected sso:frontend:unprotect oldfe, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:frontend:protect", "newfe", "myapp") {
-		t.Errorf("expected auth:frontend:protect newfe, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:protect", "newfe", "myapp") {
+		t.Errorf("expected sso:frontend:protect newfe, got: %v", runner.commandStrings())
 	}
 }
 
@@ -2315,11 +2315,11 @@ func TestCreateAppWithAuthProtected(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	if !runner.hasCommand("auth:link", "mydir", "myapp") {
-		t.Errorf("expected auth:link mydir, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:link", "mydir", "myapp") {
+		t.Errorf("expected sso:link mydir, got: %v", runner.commandStrings())
 	}
-	if !runner.hasCommand("auth:frontend:protect", "myfe", "myapp") {
-		t.Errorf("expected auth:frontend:protect myfe, got: %v", runner.commandStrings())
+	if !runner.hasCommand("sso:frontend:protect", "myfe", "myapp") {
+		t.Errorf("expected sso:frontend:protect myfe, got: %v", runner.commandStrings())
 	}
 }
 

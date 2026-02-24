@@ -845,10 +845,10 @@ func TestDokkuReaderAuthDirectories(t *testing.T) {
 			fmt.Sprintf("%v", []string{"mysql:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
 			fmt.Sprintf("%v", []string{"mariadb:list"}):  {Output: "", Err: fmt.Errorf("not installed")},
 			fmt.Sprintf("%v", []string{"mongo:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
-			fmt.Sprintf("%v", []string{"auth:list"}): {
+			fmt.Sprintf("%v", []string{"sso:list"}): {
 				Output: "NAME        VERSION  STATUS\nmydir       1        running\n",
 			},
-			fmt.Sprintf("%v", []string{"auth:info", "mydir"}): {
+			fmt.Sprintf("%v", []string{"sso:info", "mydir"}): {
 				Output: "=====> mydir\n       Provider:       ldap\n       Config url:     ldap://example.com\n",
 			},
 		},
@@ -879,13 +879,13 @@ func TestDokkuReaderAuthFrontends(t *testing.T) {
 			fmt.Sprintf("%v", []string{"mysql:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
 			fmt.Sprintf("%v", []string{"mariadb:list"}):  {Output: "", Err: fmt.Errorf("not installed")},
 			fmt.Sprintf("%v", []string{"mongo:list"}):    {Output: "", Err: fmt.Errorf("not installed")},
-			fmt.Sprintf("%v", []string{"auth:frontend:list"}): {
+			fmt.Sprintf("%v", []string{"sso:frontend:list"}): {
 				Output: "NAME        VERSION  STATUS\nmyfe        1        running\n",
 			},
-			fmt.Sprintf("%v", []string{"auth:frontend:info", "myfe"}): {
+			fmt.Sprintf("%v", []string{"sso:frontend:info", "myfe"}): {
 				Output: "=====> myfe\n       Provider:       oauth2\n       Directory:      mydir\n       Protected apps: webapp api\n",
 			},
-			fmt.Sprintf("%v", []string{"auth:oidc:list", "myfe"}): {
+			fmt.Sprintf("%v", []string{"sso:oidc:list", "myfe"}): {
 				Output: "ID          SECRET     REDIRECT_URI\nclient1     secret1    https://example.com/callback\n",
 			},
 		},
@@ -1222,8 +1222,8 @@ func TestDokkuReaderLogsAndScheduler(t *testing.T) {
 		runner.Commands[key] = FakeResult{Err: fmt.Errorf("not installed")}
 	}
 	runner.Commands["[mail:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
-	runner.Commands["[auth:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
-	runner.Commands["[auth:frontend:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
+	runner.Commands["[sso:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
+	runner.Commands["[sso:frontend:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
 	runner.Commands["[plugin:list]"] = FakeResult{Err: fmt.Errorf("not installed")}
 
 	reader := &DokkuReader{Runner: runner}
@@ -1324,7 +1324,7 @@ func TestDokkuReaderMailLink(t *testing.T) {
 			"[git:report myapp --git-source-image]":    {Output: ""},
 			"[mail:list]":                              {Output: "NAME  VERSION  STATUS\nmymail  1.0  running"},
 			"[mail:linked mymail myapp]":               {Output: ""},
-			"[auth:list]":                              {Err: fmt.Errorf("not installed")},
+			"[sso:list]":                              {Err: fmt.Errorf("not installed")},
 		},
 	}
 
@@ -1346,8 +1346,8 @@ func TestDokkuReaderAuthLink(t *testing.T) {
 			"[apps:list]":                              {Output: "=====> My Apps\nmyapp"},
 			"[git:report myapp --git-source-image]":    {Output: ""},
 			"[mail:list]":                              {Err: fmt.Errorf("not installed")},
-			"[auth:list]":                              {Output: "NAME  VERSION  STATUS\nmydir  1.0  running"},
-			"[auth:linked mydir myapp]":                {Output: ""},
+			"[sso:list]":                              {Output: "NAME  VERSION  STATUS\nmydir  1.0  running"},
+			"[sso:linked mydir myapp]":                {Output: ""},
 		},
 	}
 
@@ -1821,13 +1821,13 @@ func TestReadScopedSkipsMailWhenNotReferenced(t *testing.T) {
 	if tracker.HasCalled("mail:list") {
 		t.Error("mail:list should not be called — no mail in scope")
 	}
-	// auth:list should NOT be called
-	if tracker.HasCalled("auth:list") {
-		t.Error("auth:list should not be called — no auth in scope")
+	// sso:list should NOT be called
+	if tracker.HasCalled("sso:list") {
+		t.Error("sso:list should not be called — no auth in scope")
 	}
-	// auth:frontend:list should NOT be called
-	if tracker.HasCalled("auth:frontend:list") {
-		t.Error("auth:frontend:list should not be called — no auth frontends in scope")
+	// sso:frontend:list should NOT be called
+	if tracker.HasCalled("sso:frontend:list") {
+		t.Error("sso:frontend:list should not be called — no auth frontends in scope")
 	}
 }
 
