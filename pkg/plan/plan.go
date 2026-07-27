@@ -62,13 +62,13 @@ func (p *Plan) String() string {
 		case DestroyApp:
 			fmt.Fprintf(&b, "- app %q\n", s.App)
 		case UpdateApp:
-			fmt.Fprintf(&b, "~ app %q: %s %q → %q\n", s.App, s.Field, s.OldValue, s.NewValue)
+			fmt.Fprintf(&b, "~ app %q: %s\n", s.App, fieldChange(s.Field, s.OldValue, s.NewValue))
 		case CreateService:
 			fmt.Fprintf(&b, "+ service %q\n", s.Service)
 		case DestroyService:
 			fmt.Fprintf(&b, "- service %q\n", s.Service)
 		case UpdateService:
-			fmt.Fprintf(&b, "~ service %q: %s %q → %q\n", s.Service, s.Field, s.OldValue, s.NewValue)
+			fmt.Fprintf(&b, "~ service %q: %s\n", s.Service, fieldChange(s.Field, s.OldValue, s.NewValue))
 		case CreateMailService:
 			fmt.Fprintf(&b, "+ mail service %q\n", s.Service)
 		case DestroyMailService:
@@ -98,6 +98,19 @@ func (p *Plan) String() string {
 		}
 	}
 	return b.String()
+}
+
+// fieldChange renders a field-level change for a plan line. Many composite
+// fields (cron, scale, git, docker_options, dns, letsencrypt, network) record
+// only the field name, not before/after strings — for those, rendering
+// %q → %q printed a bare `"" → ""`, which reads like a no-op. Show the
+// old→new values only when at least one is populated; otherwise just name the
+// field as changed.
+func fieldChange(field, oldValue, newValue string) string {
+	if oldValue == "" && newValue == "" {
+		return field + " changed"
+	}
+	return fmt.Sprintf("%s %q → %q", field, oldValue, newValue)
 }
 
 // Diff computes the plan to go from actual to desired state.

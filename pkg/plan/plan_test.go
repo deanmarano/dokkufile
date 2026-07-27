@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/deanmarano/dokkufile/pkg/schema"
@@ -1323,6 +1324,28 @@ func TestUpdateGlobalString(t *testing.T) {
 	s := p.String()
 	if s == "" || s == "No changes needed." {
 		t.Error("expected non-empty plan string for UpdateGlobal")
+	}
+}
+
+func TestUpdateAppStringCompositeField(t *testing.T) {
+	// Composite fields (cron, scale, git, ...) carry no old/new strings.
+	// They must not render as a bare `"" → ""`, which reads like a no-op.
+	p := &Plan{Steps: []Step{{Action: UpdateApp, App: "myapp", Field: "cron"}}}
+	s := p.String()
+	if strings.Contains(s, `"" → ""`) {
+		t.Errorf("composite field rendered as empty arrows: %q", s)
+	}
+	if !strings.Contains(s, "cron changed") {
+		t.Errorf("expected \"cron changed\", got %q", s)
+	}
+}
+
+func TestUpdateAppStringValuedField(t *testing.T) {
+	// Fields with concrete before/after values keep the arrow rendering.
+	p := &Plan{Steps: []Step{{Action: UpdateApp, App: "myapp", Field: "letsencrypt_email", OldValue: "a@x.com", NewValue: "b@x.com"}}}
+	s := p.String()
+	if !strings.Contains(s, `letsencrypt_email "a@x.com" → "b@x.com"`) {
+		t.Errorf("expected old→new arrow rendering, got %q", s)
 	}
 }
 
