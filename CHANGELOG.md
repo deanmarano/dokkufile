@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-07-28
+
+### Changed
+- `plugin:install`/`plugin:update` now install from the newest published versioned release (via GitHub's `/releases/latest/download/` redirect) instead of the rolling `latest` prerelease, so `dokkufile:version` reports the release tag.
+
 ## 0.2.0 - 2026-07-28
 
 ### Added
