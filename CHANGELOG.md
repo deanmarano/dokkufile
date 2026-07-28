@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-07-28
 
 ### Added
 - `--app` flag for `plan` and `apply` commands to scope operations to a single app and its linked services/plugins
@@ -23,6 +23,8 @@
 - `filterByApp` moved from unexported in `cmd/inspect.go` to exported `FilterByApp` method on `schema.Dokkufile`
 
 ### Fixed
+- Nested `dokku` calls no longer inherit `DOKKU_APP_NAME` when dokkufile runs as a plugin. It leaked into the state reader and applier, so nested commands treated the app as implicit and misparsed positional args (`ps:scale altoids web=1` → "Missing count for process type altoids"; `domains:report altoids --domains-app-vhosts` → "Invalid flag passed"). This produced phantom drift on domains/scale/git in `plan` and aborted `apply` mid-run — only via the plugin/git-push path, not standalone.
+- `plan` no longer renders composite-field changes (cron, scale, git, docker_options, dns, letsencrypt, network) as a bare `"" → ""`, which read like a no-op. Shows `<field> changed` when there is no before/after string.
 - `dokkufile-bin` added to `.gitignore`
 
 ## Earlier Development
