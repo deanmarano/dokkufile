@@ -38,10 +38,31 @@ type FileRunner interface {
 // ExecRunner shells out to the real dokku binary.
 type ExecRunner struct{}
 
+// nestedDokkuEnv returns the current environment with per-invocation app
+// context removed. When dokkufile runs as a dokku plugin, dokku exports
+// DOKKU_APP_NAME for the outer command. If it leaks into the nested `dokku`
+// calls this runner makes, those commands treat the app as implicit and
+// misparse their positional arguments — e.g. `ps:scale altoids web=1` fails
+// with "Missing count for process type altoids", and `domains:report altoids
+// --domains-app-vhosts` rejects its flag. Both surface as phantom drift or
+// failed applies. Strip DOKKU_APP_NAME so nested calls parse exactly as passed.
+func nestedDokkuEnv() []string {
+	env := os.Environ()
+	cleaned := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "DOKKU_APP_NAME=") {
+			continue
+		}
+		cleaned = append(cleaned, kv)
+	}
+	return cleaned
+}
+
 func (r *ExecRunner) Run(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "dokku", args...)
+	cmd.Env = nestedDokkuEnv()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -50,6 +71,7 @@ func (r *ExecRunner) RunWithStdin(stdin io.Reader, args ...string) (string, erro
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "dokku", args...)
+	cmd.Env = nestedDokkuEnv()
 	cmd.Stdin = stdin
 	out, err := cmd.CombinedOutput()
 	return string(out), err

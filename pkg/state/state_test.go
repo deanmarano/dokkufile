@@ -1835,3 +1835,24 @@ func TestReadScopedSkipsMailWhenNotReferenced(t *testing.T) {
 var _ Reader = (*DokkuReader)(nil)
 // Verify the unused import is used
 var _ = schema.Dokkufile{}
+
+func TestNestedDokkuEnvStripsAppName(t *testing.T) {
+	t.Setenv("DOKKU_APP_NAME", "altoids")
+	t.Setenv("DOKKU_ROOT", "/home/dokku")
+	env := nestedDokkuEnv()
+	for _, kv := range env {
+		if len(kv) >= 15 && kv[:15] == "DOKKU_APP_NAME=" {
+			t.Fatalf("DOKKU_APP_NAME leaked into nested env: %q", kv)
+		}
+	}
+	// DOKKU_ROOT (and other DOKKU_* dokku needs) must be preserved.
+	var sawRoot bool
+	for _, kv := range env {
+		if kv == "DOKKU_ROOT=/home/dokku" {
+			sawRoot = true
+		}
+	}
+	if !sawRoot {
+		t.Error("nestedDokkuEnv dropped DOKKU_ROOT, which dokku needs")
+	}
+}
