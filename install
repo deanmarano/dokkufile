@@ -12,7 +12,11 @@ case "$(uname -m)" in
     ;;
 esac
 
-URL="https://github.com/deanmarano/dokkufile/releases/download/latest/dokkufile-linux-${ARCH}"
+# Track the newest published (non-prerelease) versioned release, e.g. v0.2.0.
+# GitHub's /releases/latest/download/ redirect resolves to it automatically.
+# (The rolling "latest" prerelease built on every main push lives at the
+# different path /releases/download/latest/ and is not used for installs.)
+URL="https://github.com/deanmarano/dokkufile/releases/latest/download/dokkufile-linux-${ARCH}"
 
 TMPFILE=$(mktemp "$PLUGIN_DIR/dokkufile-bin.XXXXXX")
 trap "rm -f '$TMPFILE'" EXIT
