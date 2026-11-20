@@ -1,4 +1,6 @@
 [plugin]
 description = "Infrastructure as Code for Dokku"
 version = "0.2.1"
+authors = ["Dean Marano"]
+license = "MIT"
 [plugin.config]
