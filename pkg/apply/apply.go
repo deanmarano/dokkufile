@@ -438,7 +438,7 @@ func (e *Executor) updateAppCommands(s plan.Step, desired, actual *schema.Dokkuf
 		return [][]string{append([]string{"domains:set", s.App}, dApp.Domains...)}, nil
 
 	case "env":
-		return envUpdateCommands(s.App, dApp.Env, aApp.Env), nil
+		return envUpdateCommands(s.App, dApp.Env, aApp.Env, dApp.Secrets), nil
 
 	case "links":
 		return linkUpdateCommands(s.App, dApp.Links, aApp.Links), nil
@@ -1197,13 +1197,21 @@ func configSetArgs(appName string, env map[string]string) []string {
 }
 
 // envUpdateCommands computes config:set and config:unset commands for env drift.
-func envUpdateCommands(appName string, desired, actual map[string]string) [][]string {
+// Keys in secrets are managed in Dokku config outside the Dokkufile: plan
+// already leaves them out of env drift (envEqual), so apply must not set or
+// unset them either, or applying a Dokkufile strips config other plugins set
+// (an auth plugin's AUTHELIA_DOMAIN, a link's DATABASE_URL).
+func envUpdateCommands(appName string, desired, actual map[string]string, secrets []string) [][]string {
 	var cmds [][]string
+	secretSet := map[string]bool{}
+	for _, k := range secrets {
+		secretSet[k] = true
+	}
 
 	// Find vars to set (new or changed)
 	toSetMap := map[string]string{}
 	for k, v := range desired {
-		if actual[k] != v {
+		if !secretSet[k] && actual[k] != v {
 			toSetMap[k] = v
 		}
 	}
@@ -1214,7 +1222,7 @@ func envUpdateCommands(appName string, desired, actual map[string]string) [][]st
 	// Find vars to unset (removed)
 	var toUnset []string
 	for k := range actual {
-		if _, ok := desired[k]; !ok {
+		if _, ok := desired[k]; !ok && !secretSet[k] {
 			toUnset = append(toUnset, k)
 		}
 	}
