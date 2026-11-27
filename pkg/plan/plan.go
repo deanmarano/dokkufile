@@ -372,13 +372,10 @@ func diffApp(name string, desired, actual schema.App) []Step {
 		})
 	}
 
-	if !sliceEqual(desired.Secrets, actual.Secrets) {
-		steps = append(steps, Step{
-			Action: UpdateApp,
-			App:    name,
-			Field:  "secrets",
-		})
-	}
+	// No step for secrets: the list names keys managed in Dokku config
+	// outside the Dokkufile, which only shapes the env diff above. The live
+	// state never reports a secrets list and apply has nothing to do for one,
+	// so diffing it reported permanent drift on every app that declared any.
 
 	if !mapEqual(desired.Links, actual.Links) {
 		steps = append(steps, Step{

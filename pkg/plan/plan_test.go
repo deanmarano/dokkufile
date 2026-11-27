@@ -1253,7 +1253,7 @@ func TestNoChangeGlobalBothNil(t *testing.T) {
 	}
 }
 
-func TestDetectSecretsChange(t *testing.T) {
+func TestSecretsListIsNotDrift(t *testing.T) {
 	desired := &schema.Dokkufile{
 		Version: "1",
 		Apps: map[string]schema.App{
@@ -1273,15 +1273,13 @@ func TestDetectSecretsChange(t *testing.T) {
 		},
 	}
 
+	// The live side never carries a secrets list (state does not read one)
+	// and apply has nothing to do for it, so a differing list is no step.
 	p := Diff(desired, actual)
-	found := false
 	for _, s := range p.Steps {
-		if s.Action == UpdateApp && s.Field == "secrets" {
-			found = true
+		if s.Field == "secrets" {
+			t.Errorf("unexpected secrets step: %+v", s)
 		}
-	}
-	if !found {
-		t.Error("expected secrets update step")
 	}
 }
 
