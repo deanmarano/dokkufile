@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 - 2026-11-26
+
+### Fixed
+- `apply` no longer sets or unsets an app's `secrets` keys. `plan` already left them out of env drift, but `apply` unset every live key missing from `env`, stripping config other plugins manage (an auth plugin's `AUTHELIA_DOMAIN`, a link's `DATABASE_URL`).
+- `plan` no longer reports `secrets changed` for every app that declares `secrets`. The live state never carries the list and `apply` has nothing to do for it, so it was permanent drift.
+
 ## 0.2.1 - 2026-07-28
 
 ### Changed
